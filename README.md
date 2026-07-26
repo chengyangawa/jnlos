@@ -3,4 +3,4 @@
 
 项目官网
 
-github.com/chengyangawa/jnlos
+https://jnlos.netlify.app/
