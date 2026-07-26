@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Minecraft Launcher
+GenericName=Minecraft 官方启动器
+Comment=Minecraft 官方启动器
+Exec=minecraft-launcher
+Icon=minecraft
+Terminal=false
+Type=Application
+Categories=Game;
+Keywords=minecraft;game;launcher;
+StartupWMClass=Minecraft Launcher

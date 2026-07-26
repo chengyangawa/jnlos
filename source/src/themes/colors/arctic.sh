@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Arctic 主题配色（北极白）
+export THEME_NAME="JNL-Arctic"
+export THEME_DISPLAY="JNL Arctic"
+export BG_DARK="#d8e0e8"
+export BG_MID="#e8eef4"
+export BG_LIGHT="#f4f8fc"
+export FG_DARK="#2c3e50"
+export FG_MID="#3d5167"
+export FG_LIGHT="#52677d"
+export ACCENT="#3b9eff"
+export ACCENT_HOVER="#5ab0ff"
+export WARNING="#f0a040"
+export ERROR="#e74c3c"
+export SUCCESS="#27ae60"
+export SHELL_BG="#f4f8fc"
+export SHELL_FG="#2c3e50"
+export WALLPAPER_COLORS="#f4f8fc #3b9eff #a8d8ff"

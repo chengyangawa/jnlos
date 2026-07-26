@@ -1,0 +1,34 @@
+/*
+ * JNL OS GNOME Shell pad-osd 样式（OSD 触控板提示）
+ * 占位变量由 generate-themes.sh 替换为实际颜色值。
+ */
+
+.pad-osd-window {
+  background-color: var(--shell-bg);
+  padding: 32px;
+  border-radius: 16px;
+}
+
+.pad-osd-window .pad-label {
+  color: var(--shell-fg);
+  font-size: 14pt;
+  font-weight: bold;
+}
+
+.pad-osd-window .pad-metatron {
+  color: var(--accent);
+  background-color: var(--bg-dark);
+  border-radius: 16px;
+}
+
+.pad-osd-window .pad-button {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  border-radius: 8px;
+  border: 2px solid var(--accent);
+}
+
+.pad-osd-window .pad-button:hover {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+MINECRAFT_DIR="$HOME/Games/Minecraft"
+LAUNCHER_JAR="MinecraftLauncher.jar"
+LAUNCHER_URL="https://launcher.mojang.com/v1/objects/e19a9004806d1490e6f52a77224b505641c583d0/launcher.jar"
+
+mkdir -p "$MINECRAFT_DIR"
+
+if [ ! -f "$MINECRAFT_DIR/$LAUNCHER_JAR" ]; then
+    zenity --info --title "Minecraft 启动器" --text "检测到首次运行，正在下载Minecraft启动器..."
+    cd "$MINECRAFT_DIR"
+    if command -v wget &>/dev/null; then
+        wget -q --show-progress "$LAUNCHER_URL" -O "$LAUNCHER_JAR"
+    else
+        curl -sL "$LAUNCHER_URL" -o "$LAUNCHER_JAR"
+    fi
+fi
+
+if [ ! -f "$MINECRAFT_DIR/$LAUNCHER_JAR" ]; then
+    zenity --error --title "Minecraft 启动器" --text "下载失败，请手动下载Minecraft启动器到 $MINECRAFT_DIR"
+    exit 1
+fi
+
+cd "$MINECRAFT_DIR"
+/usr/lib/jvm/java-17-openjdk/bin/java -jar "$LAUNCHER_JAR" "$@"

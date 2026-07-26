@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Magma 主题配色（岩浆红黑）
+export THEME_NAME="JNL-Magma"
+export THEME_DISPLAY="JNL Magma"
+export BG_DARK="#1a0e0e"
+export BG_MID="#2a1414"
+export BG_LIGHT="#3a1c1c"
+export FG_DARK="#f5e0d8"
+export FG_MID="#e0c0b8"
+export FG_LIGHT="#c8a0a0"
+export ACCENT="#ff3c3c"
+export ACCENT_HOVER="#ff5a5a"
+export WARNING="#ff9a3c"
+export ERROR="#e06c75"
+export SUCCESS="#a6e3a1"
+export SHELL_BG="#1a0e0e"
+export SHELL_FG="#f5e0d8"
+export WALLPAPER_COLORS="#1a0e0e #ff3c3c #ff9a3c"

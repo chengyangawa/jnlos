@@ -1,0 +1,54 @@
+#!/bin/bash
+
+JNL_ICON="/usr/share/icons/jnl-os/OS.svg"
+MUSIC_DIR="$HOME/Music"
+mkdir -p "$MUSIC_DIR"
+
+play_music() {
+    file="$1"
+    if command -v mpv >/dev/null 2>&1; then
+        mpv --no-video --force-window=immediate "$file" &
+    elif command -v cvlc >/dev/null 2>&1; then
+        cvlc --play-and-exit "$file" &
+    else
+        zenity --error --title="JNL Player" --text="未找到音乐播放器后端，请安装 mpv 或 vlc"
+    fi
+}
+
+select_and_play() {
+    file=$(zenity --file-selection --title="JNL Player - 选择音乐文件" --file-filter="*.mp3 *.flac *.ogg *.wav *.m4a *.aac" --filename="$MUSIC_DIR/")
+    [ -z "$file" ] && return
+    play_music "$file"
+}
+
+show_main() {
+    while true; do
+        choice=$(zenity --list --title="JNL Player" --text="<big><b>JNL 音乐播放器</b></big>\n\n选择操作:" \
+            --column="操作" --column="描述" \
+            --window-icon="$JNL_ICON" \
+            --width=500 --height=400 \
+            --ok-label="执行" --cancel-label="退出" \
+            "播放音乐" "选择并播放音乐文件" \
+            "打开音乐文件夹" "打开音乐目录" \
+            "关于" "关于 JNL Player")
+
+        [ -z "$choice" ] && break
+
+        case "$choice" in
+            "播放音乐")
+                select_and_play
+                ;;
+            "打开音乐文件夹")
+                dolphin "$MUSIC_DIR" &
+                ;;
+            "关于")
+                zenity --info --title="关于 JNL Player" \
+                    --window-icon="$JNL_ICON" \
+                    --text="<big><b>JNL Player</b></big>\n\nJava Net Lava OS 音乐播放器\n版本 1.0\n\n© 2026 FEPT"
+                ;;
+        esac
+    done
+}
+
+show_main
+exit 0

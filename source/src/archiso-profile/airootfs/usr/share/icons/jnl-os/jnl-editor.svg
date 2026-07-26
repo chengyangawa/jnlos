@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#EF4444"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1"/>
+      <feOffset dx="0" dy="1.5" result="offsetBlur"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="url(#bgGrad)"/>
+  <rect x="2" y="2" width="44" height="22" rx="11" fill="#FFFFFF" opacity="0.08"/>
+  <path d="M13 12 C13 11.4 13.4 11 14 11 L28 11 C28.6 11 29 11.4 29 12 L29 37 C29 37.6 28.6 38 28 38 L14 38 C13.4 38 13 37.6 13 37 Z" fill="#FFFFFF" opacity="0.3"/>
+  <path d="M15 14 C15 13.4 15.4 13 16 13 L30 13 C30.6 13 31 13.4 31 14 L31 35 C31 35.6 30.6 36 30 36 L16 36 C15.4 36 15 35.6 15 35 Z" fill="#FFFFFF" filter="url(#softShadow)"/>
+  <line x1="19" y1="18" x2="27" y2="18" stroke="#EF4444" stroke-width="1.5" opacity="0.5" stroke-linecap="round"/>
+  <line x1="19" y1="22" x2="27" y2="22" stroke="#EF4444" stroke-width="1.5" opacity="0.5" stroke-linecap="round"/>
+  <line x1="19" y1="26" x2="25" y2="26" stroke="#EF4444" stroke-width="1.5" opacity="0.5" stroke-linecap="round"/>
+  <g transform="translate(34 32) rotate(45)" filter="url(#softShadow)">
+    <rect x="-2.5" y="-12" width="5" height="18" rx="1" fill="#FFFFFF"/>
+    <path d="M-2.5 6 L0 10 L2.5 6 Z" fill="#FCD34D"/>
+    <rect x="-2.5" y="-12" width="5" height="3" rx="0.5" fill="#FFFFFF" opacity="0.6"/>
+  </g>
+</svg>

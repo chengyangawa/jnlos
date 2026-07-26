@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Light 主题配色（浅色，主色蓝色）
+export THEME_NAME="JNL-Light"
+export THEME_DISPLAY="JNL Light"
+export BG_DARK="#dce0e8"
+export BG_MID="#e6e9ef"
+export BG_LIGHT="#eff1f5"
+export FG_DARK="#4c4f69"
+export FG_MID="#5c5f77"
+export FG_LIGHT="#6c6f85"
+export ACCENT="#1e66f5"
+export ACCENT_HOVER="#2a6ef5"
+export WARNING="#df8e1d"
+export ERROR="#d20f39"
+export SUCCESS="#40a02b"
+export SHELL_BG="#eff1f5"
+export SHELL_FG="#4c4f69"
+export WALLPAPER_COLORS="#eff1f5 #1e66f5 #7287fd"

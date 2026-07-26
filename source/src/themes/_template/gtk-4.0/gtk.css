@@ -1,0 +1,339 @@
+/*
+ * JNL OS GTK4 主题模板
+ * 占位变量由 generate-themes.sh 替换为实际颜色值：
+ *   var(--bg-dark)   var(--bg-mid)   var(--bg-light)
+ *   var(--fg-dark)   var(--fg-mid)   var(--fg-light)
+ *   var(--accent)    var(--accent-hover)
+ *   var(--warning)   var(--error)    var(--success)
+ */
+
+/* 全局窗口 */
+window,
+window.background {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+}
+
+window.background.csd {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+
+/* 头部栏 */
+headerbar,
+windowhandle > headerbar {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  border-bottom: 1px solid var(--bg-light);
+  padding: 4px 8px;
+}
+
+headerbar:backdrop {
+  background-color: var(--bg-dark);
+  color: var(--fg-light);
+}
+
+/* 按钮 */
+button {
+  background-color: var(--bg-light);
+  color: var(--fg-dark);
+  border: 1px solid var(--bg-light);
+  border-radius: 6px;
+  padding: 6px 12px;
+  min-height: 22px;
+  transition: all 200ms ease;
+}
+
+button:hover {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+  border-color: var(--accent-hover);
+}
+
+button:active,
+button:checked {
+  background-color: var(--accent-hover);
+  color: var(--bg-dark);
+  border-color: var(--accent-hover);
+}
+
+button:disabled {
+  background-color: var(--bg-mid);
+  color: var(--fg-light);
+  border-color: var(--bg-mid);
+}
+
+button.suggested-action {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+  border-color: var(--accent);
+}
+
+button.suggested-action:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.destructive-action {
+  background-color: var(--error);
+  color: var(--bg-dark);
+  border-color: var(--error);
+}
+
+/* 输入框与文字视图 */
+entry,
+entry.flat {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+  border: 1px solid var(--bg-light);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+entry:focus-within {
+  border-color: var(--accent);
+}
+
+entry:disabled {
+  color: var(--fg-light);
+  background-color: var(--bg-mid);
+}
+
+entry > text > selection {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+textview > text {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+}
+
+textview > text > selection {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 滚动条 */
+scrolledwindow > scrollbar {
+  background-color: var(--bg-dark);
+  border: none;
+}
+
+scrollbar > range > trough {
+  background-color: transparent;
+}
+
+scrollbar > range > trough > slider {
+  background-color: var(--bg-light);
+  border-radius: 6px;
+  min-width: 8px;
+  min-height: 8px;
+}
+
+scrollbar > range > trough > slider:hover {
+  background-color: var(--accent);
+}
+
+/* 菜单与弹出菜单 */
+popover > contents,
+popover.background > contents {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  border: 1px solid var(--bg-light);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+modelbutton {
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: var(--fg-dark);
+}
+
+modelbutton:hover,
+modelbutton:active {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+menubar {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+}
+
+menubar > item:hover {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 列表与列视图 */
+listview,
+list {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+}
+
+listview > row:hover,
+list > row:hover {
+  background-color: var(--bg-mid);
+}
+
+listview > row:selected,
+list > row:selected {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 标签页 */
+notebook > header {
+  background-color: var(--bg-mid);
+  border-color: var(--bg-light);
+}
+
+notebook > header > tabs > tab {
+  background-color: var(--bg-mid);
+  color: var(--fg-mid);
+  padding: 6px 14px;
+  border-radius: 6px 6px 0 0;
+}
+
+notebook > header > tabs > tab:checked {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+}
+
+notebook > header > tabs > tab:hover:not(:checked) {
+  background-color: var(--bg-light);
+}
+
+/* 开关 */
+switch {
+  background-color: var(--bg-light);
+  border-radius: 14px;
+  border: none;
+}
+
+switch:checked {
+  background-color: var(--accent);
+}
+
+switch > slider {
+  background-color: var(--fg-dark);
+  border-radius: 12px;
+}
+
+/* 进度条 */
+progressbar > trough {
+  background-color: var(--bg-mid);
+  border-radius: 6px;
+}
+
+progressbar > trough > progress {
+  background-color: var(--accent);
+  border-radius: 6px;
+}
+
+/* 滑块 */
+scale > trough {
+  background-color: var(--bg-light);
+  border-radius: 6px;
+}
+
+scale > trough > highlight {
+  background-color: var(--accent);
+  border-radius: 6px;
+}
+
+scale > trough > slider {
+  background-color: var(--accent);
+  border-radius: 50%;
+  min-width: 14px;
+  min-height: 14px;
+}
+
+/* 工具栏 */
+toolbarview {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+}
+
+toolbar {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  padding: 4px;
+}
+
+/* 状态栏与底部栏 */
+statusbar,
+actionbar {
+  background-color: var(--bg-mid);
+  color: var(--fg-mid);
+}
+
+/* 提示框 */
+tooltip {
+  background-color: var(--bg-light);
+  color: var(--fg-dark);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+/* 框架与分隔符 */
+frame > border {
+  border: 1px solid var(--bg-light);
+  border-radius: 4px;
+}
+
+separator {
+  background-color: var(--bg-light);
+  min-width: 1px;
+  min-height: 1px;
+}
+
+/* 标签 */
+label {
+  color: var(--fg-dark);
+}
+
+label:disabled {
+  color: var(--fg-light);
+}
+
+label:selected {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 消息对话框 */
+messagedialog,
+window.dialog {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+}
+
+/* 信息条 */
+infobar {
+  background-color: var(--bg-mid);
+  border-radius: 6px;
+}
+
+infobar.info {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+infobar.warning {
+  background-color: var(--warning);
+  color: var(--bg-dark);
+}
+
+infobar.error {
+  background-color: var(--error);
+  color: var(--bg-dark);
+}
+
+/* 链接 */
+button.link,
+link {
+  color: var(--accent);
+}

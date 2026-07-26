@@ -1,0 +1,346 @@
+/*
+ * JNL OS GTK3 主题模板
+ * 占位变量由 generate-themes.sh 替换为实际颜色值：
+ *   var(--bg-dark)   var(--bg-mid)   var(--bg-light)
+ *   var(--fg-dark)   var(--fg-mid)   var(--fg-light)
+ *   var(--accent)    var(--accent-hover)
+ *   var(--warning)   var(--error)    var(--success)
+ */
+
+/* 全局背景与前景 */
+* {
+  -GtkWindow-resize-grip-height: 0;
+  -GtkWindow-resize-grip-width: 0;
+  -GtkScrolledWindow-scrollbar-spacing: 0;
+  outline: none;
+}
+
+window,
+dialog {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+}
+
+decoration {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+  margin: 10px;
+}
+
+/* 头部栏 */
+headerbar,
+.titlebar {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  border-bottom: 1px solid var(--bg-light);
+  padding: 4px 8px;
+}
+
+headerbar:backdrop,
+.titlebar:backdrop {
+  background-color: var(--bg-dark);
+  color: var(--fg-light);
+}
+
+/* 按钮 */
+button {
+  background-color: var(--bg-light);
+  color: var(--fg-dark);
+  border: 1px solid var(--bg-light);
+  border-radius: 6px;
+  padding: 6px 12px;
+  min-height: 22px;
+  transition: all 0.2s ease;
+}
+
+button:hover {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+  border-color: var(--accent-hover);
+}
+
+button:active,
+button:checked {
+  background-color: var(--accent-hover);
+  color: var(--bg-dark);
+  border-color: var(--accent-hover);
+}
+
+button:disabled {
+  background-color: var(--bg-mid);
+  color: var(--fg-light);
+  border-color: var(--bg-mid);
+}
+
+button.suggested-action {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+  border-color: var(--accent);
+}
+
+button.suggested-action:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.destructive-action {
+  background-color: var(--error);
+  color: var(--bg-dark);
+  border-color: var(--error);
+}
+
+/* 输入框 */
+entry {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+  border: 1px solid var(--bg-light);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+entry:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+entry:disabled {
+  color: var(--fg-light);
+  background-color: var(--bg-mid);
+}
+
+entry selection {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 滚动条 */
+scrollbar {
+  background-color: var(--bg-dark);
+  border: none;
+}
+
+scrollbar slider {
+  background-color: var(--bg-light);
+  border-radius: 6px;
+  min-width: 8px;
+  min-height: 8px;
+}
+
+scrollbar slider:hover {
+  background-color: var(--accent);
+}
+
+/* 菜单 */
+menu,
+.popup,
+.context-menu {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  border: 1px solid var(--bg-light);
+  border-radius: 6px;
+  padding: 4px;
+}
+
+menuitem {
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: var(--fg-dark);
+}
+
+menuitem:hover,
+menuitem:checked {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+menuitem:disabled {
+  color: var(--fg-light);
+}
+
+menubar {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+}
+
+menubar > menuitem:hover {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 弹出框 */
+popover.background {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  border: 1px solid var(--bg-light);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* 列表与树 */
+list,
+treeview.view {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+}
+
+list row:hover,
+treeview.view:hover {
+  background-color: var(--bg-mid);
+}
+
+list row:selected,
+treeview.view:selected {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 标签页 */
+notebook > header {
+  background-color: var(--bg-mid);
+  border-color: var(--bg-light);
+}
+
+notebook tab {
+  background-color: var(--bg-mid);
+  color: var(--fg-mid);
+  padding: 6px 14px;
+  border-radius: 6px 6px 0 0;
+}
+
+notebook tab:checked {
+  background-color: var(--bg-dark);
+  color: var(--fg-dark);
+}
+
+notebook tab:hover:not(:checked) {
+  background-color: var(--bg-light);
+}
+
+/* 开关 */
+switch {
+  background-color: var(--bg-light);
+  border-radius: 14px;
+  border: none;
+}
+
+switch:checked {
+  background-color: var(--accent);
+}
+
+switch slider {
+  background-color: var(--fg-dark);
+  border-radius: 12px;
+}
+
+/* 进度条 */
+progressbar trough {
+  background-color: var(--bg-mid);
+  border-radius: 6px;
+}
+
+progressbar progress {
+  background-color: var(--accent);
+  border-radius: 6px;
+}
+
+/* 滑块 */
+scale trough {
+  background-color: var(--bg-light);
+  border-radius: 6px;
+}
+
+scale highlight {
+  background-color: var(--accent);
+  border-radius: 6px;
+}
+
+scale slider {
+  background-color: var(--accent);
+  border-radius: 50%;
+  min-width: 14px;
+  min-height: 14px;
+}
+
+/* 工具栏 */
+toolbar {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+  padding: 4px;
+}
+
+/* 状态栏 */
+statusbar {
+  background-color: var(--bg-mid);
+  color: var(--fg-mid);
+}
+
+/* 提示框 */
+tooltip {
+  background-color: var(--bg-light);
+  color: var(--fg-dark);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+/* 框架与分隔符 */
+frame > border {
+  border: 1px solid var(--bg-light);
+  border-radius: 4px;
+}
+
+separator {
+  background-color: var(--bg-light);
+  min-width: 1px;
+  min-height: 1px;
+}
+
+/* 标签与文字 */
+label {
+  color: var(--fg-dark);
+}
+
+label:disabled {
+  color: var(--fg-light);
+}
+
+label:selected {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+/* 消息对话框 */
+messagedialog {
+  background-color: var(--bg-mid);
+  color: var(--fg-dark);
+}
+
+/* 信息条 */
+infobar {
+  background-color: var(--bg-mid);
+  border-radius: 6px;
+}
+
+infobar.info {
+  background-color: var(--accent);
+  color: var(--bg-dark);
+}
+
+infobar.warning {
+  background-color: var(--warning);
+  color: var(--bg-dark);
+}
+
+infobar.error {
+  background-color: var(--error);
+  color: var(--bg-dark);
+}
+
+infobar.question {
+  background-color: var(--accent-hover);
+  color: var(--bg-dark);
+}
+
+/* 链接 */
+button.link,
+link {
+  color: var(--accent);
+}

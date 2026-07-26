@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Rose 主题配色（玫瑰红）
+export THEME_NAME="JNL-Rose"
+export THEME_DISPLAY="JNL Rose"
+export BG_DARK="#2e1e28"
+export BG_MID="#3e2832"
+export BG_LIGHT="#4e3240"
+export FG_DARK="#f5d8e0"
+export FG_MID="#e0c0c8"
+export FG_LIGHT="#c8a8b0"
+export ACCENT="#f55a8c"
+export ACCENT_HOVER="#ff70a0"
+export WARNING="#ffd166"
+export ERROR="#e06c75"
+export SUCCESS="#06d6a0"
+export SHELL_BG="#2e1e28"
+export SHELL_FG="#f5d8e0"
+export WALLPAPER_COLORS="#2e1e28 #f55a8c #e06c75"

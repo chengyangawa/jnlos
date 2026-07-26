@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Forest 主题配色（森林绿，主色翠绿）
+export THEME_NAME="JNL-Forest"
+export THEME_DISPLAY="JNL Forest"
+export BG_DARK="#1a2820"
+export BG_MID="#243428"
+export BG_LIGHT="#2e4234"
+export FG_DARK="#d4e8d8"
+export FG_MID="#bcd4c0"
+export FG_LIGHT="#a4c0a8"
+export ACCENT="#5fd97a"
+export ACCENT_HOVER="#7ae895"
+export WARNING="#f0c674"
+export ERROR="#e06c75"
+export SUCCESS="#6cc370"
+export SHELL_BG="#1a2820"
+export SHELL_FG="#d4e8d8"
+export WALLPAPER_COLORS="#1a2820 #5fd97a #4caf50"

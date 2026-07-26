@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="tbg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1f2937;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#111827;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="url(#tbg)"/>
+  <rect x="10" y="16" width="44" height="32" rx="4" fill="#0a0a0a" stroke="#374151" stroke-width="1.5"/>
+  <text x="16" y="30" fill="#22c55e" font-family="monospace" font-size="8" font-weight="bold">jnl &gt;_</text>
+  <rect x="16" y="34" width="2" height="6" fill="#22c55e">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+  <text x="16" y="44" fill="#9ca3af" font-family="monospace" font-size="6">fetch system info</text>
+</svg>

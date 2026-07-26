@@ -1,0 +1,25 @@
+# Maintainer: Java Net Lava OS Team
+pkgname=jnlp
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Java Net Lava Player - .jnl music pack desktop player (GTK4 + GStreamer)"
+arch=('any')
+url="https://jnl-os.local"
+license=('GPL3')
+depends=('python' 'python-gobject' 'gtk4' 'gstreamer' 'gst-plugins-base'
+         'gst-plugins-good')
+optdepends=('gst-plugins-bad: 播放部分编码格式'
+            'gst-plugins-ugly: 播放 MP3 等格式'
+            'gst-libav: 通过 ffmpeg 解码更多格式')
+source=("jnlp"
+        "jnlp.desktop")
+sha256sums=('SKIP'
+            'SKIP')
+
+package() {
+    # 主程序
+    install -Dm755 "$srcdir/jnlp" "$pkgdir/usr/bin/jnlp"
+    # 桌面入口文件（含 .jnl MIME 关联）
+    install -Dm644 "$srcdir/jnlp.desktop" \
+        "$pkgdir/usr/share/applications/jnlp.desktop"
+}

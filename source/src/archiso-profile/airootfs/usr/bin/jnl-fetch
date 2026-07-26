@@ -1,0 +1,31 @@
+#!/bin/bash
+# JNL OS 系统信息显示 - neofetch风格
+
+VERSION=$(cat /etc/jnl-os-version 2>/dev/null || echo "classic1.8")
+KERNEL=$(/usr/bin/uname -r)
+UPTIME=$(awk '{printf "%d天 %d:%02d", $1/86400, ($1%86400)/3600, ($1%3600)/60}' /proc/uptime 2>/dev/null || echo "刚启动")
+SHELL=$(basename "$SHELL" 2>/dev/null || echo "bash")
+CPU=$(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' | sed 's/(.*)//')
+CPU_CORES=$(nproc 2>/dev/null || echo "?")
+MEM_USED=$(free -h | grep Mem | awk '{print $3}')
+MEM_TOTAL=$(free -h | grep Mem | awk '{print $2}')
+
+echo ""
+echo -e "\033[1;34m    ██╗ █████╗ ███╗   ██╗ █████╗ ██╗     ███████╗██╗  ██╗\033[0m"
+echo -e "\033[1;34m    ██║██╔══██╗████╗  ██║██╔══██╗██║     ██╔════╝██║  ██║\033[0m"
+echo -e "\033[1;34m    ██║███████║██╔██╗ ██║███████║██║     ███████╗███████║\033[0m"
+echo -e "\033[1;34m██  ██║██╔══██║██║╚██╗██║██╔══██║██║     ╚════██║██╔══██║\033[0m"
+echo -e "\033[1;34m╚█████╔╝██║  ██║██║ ╚████║██║  ██║███████╗███████║██║  ██║\033[0m"
+echo -e "\033[1;34m ╚════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝\033[0m"
+echo ""
+echo -e "  \033[1;34mOS:\033[0m      Java Net Lava OS $VERSION"
+echo -e "  \033[1;34mKernel:\033[0m   $KERNEL"
+echo -e "  \033[1;34mUptime:\033[0m   $UPTIME"
+echo -e "  \033[1;34mShell:\033[0m    $SHELL"
+echo -e "  \033[1;34mCPU:\033[0m      $CPU ($CPU_CORES 核)"
+echo -e "  \033[1;34mMemory:\033[0m   $MEM_USED / $MEM_TOTAL"
+echo -e "  \033[1;34mDE:\033[0m       KDE Plasma 6"
+echo -e "  \033[1;34mTeam:\033[0m     FEPT"
+echo ""
+echo -e "  \033[0;90m© 2026 FEPT. All rights reserved.\033[0m"
+echo ""

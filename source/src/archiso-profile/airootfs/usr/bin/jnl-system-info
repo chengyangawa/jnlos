@@ -1,0 +1,32 @@
+#!/bin/bash
+
+VERSION=$(cat /etc/jnl-os-version 2>/dev/null || echo "classic1.9")
+KERNEL=$(uname -r)
+CPU=$(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')
+MEM=$(free -h | grep Mem | awk '{print $2}')
+HOSTNAME=$(hostname)
+OS_NAME="Java Net Lava OS"
+DEVELOPER="FEPT"
+RELEASE_DATE="2026年6月"
+
+IMAGE_PATH="/usr/share/icons/jnl-os/1.0.svg"
+
+yad --center --width=550 --height=600 --title="系统信息" \
+    --fixed --no-minimize \
+    --image="$IMAGE_PATH" \
+    --text="<big><b>$OS_NAME</b></big>" \
+    --form \
+    --field="系统版本:":lbl "$VERSION" \
+    --field="开发团队:":lbl "$DEVELOPER" \
+    --field="发布日期:":lbl "$RELEASE_DATE" \
+    --field="操作系统:":lbl "$OS_NAME $VERSION" \
+    --field="内核版本:":lbl "$KERNEL" \
+    --field="处理器:":lbl "$CPU" \
+    --field="内存:":lbl "$MEM" \
+    --field="计算机名:":lbl "$HOSTNAME" \
+    --field="系统类型:":lbl "64位操作系统, x64 处理器" \
+    --field="© 2026 $DEVELOPER. 保留所有权利。":lbl "" \
+    --buttons-layout=center \
+    --button="确定":0
+
+exit 0

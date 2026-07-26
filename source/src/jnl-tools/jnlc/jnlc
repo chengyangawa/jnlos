@@ -1,0 +1,464 @@
+#!/usr/bin/env python3
+"""
+jnlc - Java Net Lava Compiler
+.jnl 音乐包格式命令行工具
+
+.jnl 是 Java Net Lava OS 自定义的音乐打包格式（本质为 ZIP 压缩包），
+内部包含 audio.<ext>、meta.json、cover.jpg（可选）、lyrics.lrc（可选）。
+详见 src/jnl-tools/spec/FORMAT.md。
+
+子命令：
+  pack   <dir> <output.jnl>  打包目录为 .jnl 文件
+  unpack <input.jnl> <dir>   解包 .jnl 到目录
+  info   <input.jnl>         查看 .jnl 信息
+  play   <input.jnl>         播放 .jnl
+  list   <dir>               列出目录中的 .jnl 文件
+
+依赖：
+  - 仅使用 Python3 标准库（zipfile / argparse / json / subprocess 等）
+  - 可选：mutagen（用于自动读取音频时长）
+  - 可选：mpv / vlc / gst-play / ffplay（用于 play 子命令）
+"""
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+# 支持的音频扩展名（小写）。前四项符合 FORMAT.md 规范的 audio_codec 枚举，
+# .wav / .opus 作为兜底支持，便于处理本地素材。
+SUPPORTED_AUDIO = ('.mp3', '.flac', '.ogg', '.m4a', '.wav', '.opus')
+
+# meta.json 中规范允许的 audio_codec 取值（用于校验）
+VALID_CODECS = ('mp3', 'flac', 'ogg', 'm4a')
+
+
+def find_audio(dir_path):
+    """在目录中查找音频文件。
+
+    优先匹配 audio.<ext> 命名的文件（符合规范约定），
+    若未找到则回退到目录中任意一个受支持扩展名的文件。
+    返回 Path 对象或 None。
+    """
+    # 优先：规范约定的固定文件名 audio.<ext>
+    for ext in SUPPORTED_AUDIO:
+        p = dir_path / ('audio' + ext)
+        if p.exists():
+            return p
+    # 兜底：扫描目录中任意受支持的音频文件
+    if dir_path.is_dir():
+        for p in dir_path.iterdir():
+            if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO:
+                return p
+    return None
+
+
+def get_audio_duration(audio_path):
+    """尝试用 mutagen 库获取音频时长（秒）。
+
+    mutagen 为可选依赖，未安装或读取失败时返回 0。
+    """
+    try:
+        from mutagen import File as MutagenFile
+        m = MutagenFile(str(audio_path))
+        if m is not None and m.info and m.info.length:
+            return int(m.info.length)
+    except Exception:
+        pass
+    return 0
+
+
+def safe_name(s):
+    """将字符串转为安全文件名。
+
+    保留字母数字及 -_.()[] 空格，其余字符替换为下划线，
+    结果为空时返回 'unknown'。用于 .jnl 文件名生成。
+    """
+    keep = '-_.()[] '
+    result = ''.join(c if c.isalnum() or c in keep else '_' for c in s)
+    return result.strip() or 'unknown'
+
+
+def make_meta(dir_path, audio_path):
+    """当源目录缺少 meta.json 时，自动生成元数据字典。"""
+    codec = audio_path.suffix.lstrip('.').lower()
+    return {
+        "format_version": "1.0",
+        "title": dir_path.name,
+        "artist": "Unknown",
+        "album": "",
+        "duration": get_audio_duration(audio_path),
+        "source_url": "",
+        "source_platform": "",
+        "audio_codec": codec,
+        "audio_bitrate": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "tags": []
+    }
+
+
+def check_no_symlink(path):
+    """检查路径是否为符号链接，是则报错退出。"""
+    if path.is_symlink():
+        print(f"错误：不允许使用符号链接：{path}", file=sys.stderr)
+        return False
+    return True
+
+
+def cmd_pack(args):
+    """打包目录为 .jnl 文件。
+
+    流程：
+      1. 校验源目录与音频文件存在
+      2. 校验无符号链接
+      3. 读取或自动生成 meta.json
+      4. 校验 meta 必需字段
+      5. 写入 ZIP（音频重命名为 audio.<ext>，封面统一为 cover.jpg）
+    """
+    src = Path(args.dir).resolve()
+    out = Path(args.output).resolve()
+
+    # 源目录校验
+    if not src.exists():
+        print(f"错误：路径不存在：{src}", file=sys.stderr)
+        return 1
+    if not src.is_dir():
+        print(f"错误：不是目录：{src}", file=sys.stderr)
+        return 1
+    # 安全约束：源目录本身不允许是符号链接
+    if src.is_symlink():
+        print(f"错误：源目录不允许为符号链接：{src}", file=sys.stderr)
+        return 1
+
+    # 查找音频文件
+    audio = find_audio(src)
+    if not audio:
+        print(f"错误：未在 {src} 中找到受支持的音频文件", file=sys.stderr)
+        return 1
+    # 校验音频文件不是符号链接
+    if not check_no_symlink(audio):
+        return 1
+
+    # 读取或生成 meta.json
+    meta_path = src / 'meta.json'
+    if meta_path.exists():
+        if not check_no_symlink(meta_path):
+            return 1
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"错误：meta.json 不是合法 JSON：{e}", file=sys.stderr)
+            return 1
+        except OSError as e:
+            print(f"错误：无法读取 meta.json：{e}", file=sys.stderr)
+            return 1
+        # 补全可选字段默认值
+        meta.setdefault('format_version', '1.0')
+        meta.setdefault('created_at', datetime.now(timezone.utc).isoformat())
+    else:
+        meta = make_meta(src, audio)
+        print(f"提示：未找到 meta.json，已自动生成（标题：{meta['title']}）")
+
+    # 校验 meta 必需字段（title / artist 不能为空）
+    for k in ('title', 'artist'):
+        if not meta.get(k):
+            print(f"错误：meta.json 缺少必需字段 {k}", file=sys.stderr)
+            return 1
+
+    # 打包为 ZIP
+    try:
+        with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # 添加音频（统一重命名为 audio.<ext>，去除路径前缀）
+            zf.write(audio, 'audio' + audio.suffix.lower())
+            # 添加 meta.json（直接写入字符串，保证 UTF-8 无 BOM）
+            zf.writestr('meta.json', json.dumps(meta, ensure_ascii=False, indent=2))
+            # 添加封面（可选）：规范约定内部文件名固定为 cover.jpg
+            for cover_name in ('cover.jpg', 'cover.jpeg', 'cover.png'):
+                cover = src / cover_name
+                if cover.exists() and not cover.is_symlink():
+                    # 统一归档为 cover.jpg，符合规范第 4.2 节固定内部命名
+                    zf.write(cover, 'cover.jpg')
+                    break
+            # 添加歌词（可选）
+            lyrics = src / 'lyrics.lrc'
+            if lyrics.exists() and not lyrics.is_symlink():
+                zf.write(lyrics, 'lyrics.lrc')
+    except OSError as e:
+        print(f"错误：打包失败：{e}", file=sys.stderr)
+        return 1
+
+    # 输出成功信息
+    size_kb = out.stat().st_size / 1024
+    print(f"已打包：{out}")
+    print(f"  标题：{meta['title']}")
+    print(f"  艺术家：{meta['artist']}")
+    print(f"  时长：{meta.get('duration', 0)} 秒")
+    print(f"  大小：{size_kb:.1f} KB")
+    return 0
+
+
+def cmd_unpack(args):
+    """解包 .jnl 到目录。
+
+    包含安全校验：禁止绝对路径、禁止路径穿越（.. 段）。
+    """
+    src = Path(args.input).resolve()
+    dst = Path(args.dir).resolve()
+
+    if not src.is_file():
+        print(f"错误：文件不存在：{src}", file=sys.stderr)
+        return 1
+
+    # 创建目标目录
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        print(f"错误：无法创建目录 {dst}：{e}", file=sys.stderr)
+        return 1
+
+    try:
+        with zipfile.ZipFile(src, 'r') as zf:
+            # 安全校验：禁止绝对路径与路径穿越
+            for name in zf.namelist():
+                if name.startswith('/') or name.startswith('\\') or '..' in name.split('/'):
+                    print(f"错误：检测到不安全路径：{name}", file=sys.stderr)
+                    return 1
+            # 解压全部文件到目标目录
+            zf.extractall(dst)
+            names = zf.namelist()
+    except zipfile.BadZipFile:
+        print(f"错误：不是合法的 ZIP/.jnl 文件：{src}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"错误：解包失败：{e}", file=sys.stderr)
+        return 1
+
+    # 输出解包结果
+    print(f"已解包：{src} -> {dst}")
+    print(f"  文件：")
+    for n in names:
+        print(f"    - {n}")
+    return 0
+
+
+def read_meta(jnl_path):
+    """从 .jnl 中读取 meta.json 并返回字典。"""
+    with zipfile.ZipFile(jnl_path, 'r') as zf:
+        with zf.open('meta.json') as f:
+            return json.load(f)
+
+
+def fmt_duration(seconds):
+    """格式化时长为 mm:ss 或 h:mm:ss。未知则返回 '未知'。"""
+    if not seconds:
+        return "未知"
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def cmd_info(args):
+    """查看 .jnl 元数据信息，按规范格式化输出。"""
+    src = Path(args.input).resolve()
+    if not src.is_file():
+        print(f"错误：文件不存在：{src}", file=sys.stderr)
+        return 1
+
+    try:
+        meta = read_meta(src)
+    except zipfile.BadZipFile:
+        print(f"错误：不是合法的 .jnl 文件：{src}", file=sys.stderr)
+        return 1
+    except KeyError:
+        print("错误：.jnl 中缺少 meta.json", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"错误：无法读取 meta.json：{e}", file=sys.stderr)
+        return 1
+
+    # 格式化输出元数据
+    print(f"标题:   {meta.get('title', '未知')}")
+    print(f"艺术家: {meta.get('artist', '未知')}")
+    print(f"专辑:   {meta.get('album', '未知')}")
+    print(f"时长:   {fmt_duration(meta.get('duration', 0))}")
+    print(f"来源:   {meta.get('source_url', '未知')}")
+    print(f"平台:   {meta.get('source_platform', '未知')}")
+    print(f"编码:   {meta.get('audio_codec', '未知')}")
+    br = meta.get('audio_bitrate', 0)
+    print(f"比特率: {br} kbps" if br else "比特率: 未知")
+    # 解析并格式化创建时间
+    created = meta.get('created_at', '')
+    if created:
+        try:
+            dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+            print(f"创建于: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception:
+            print(f"创建于: {created}")
+    else:
+        print("创建于: 未知")
+    # 标签
+    tags = meta.get('tags', [])
+    if tags:
+        print(f"标签:   {', '.join(tags)}")
+    return 0
+
+
+def find_player():
+    """查找系统可用的音频播放器。
+
+    优先级：mpv > vlc > gst-play-1.0 > gst-play > ffplay > paplay > aplay
+    返回命令名或 None。
+    """
+    for cmd in ('mpv', 'vlc', 'gst-play-1.0', 'gst-play', 'ffplay', 'paplay', 'aplay'):
+        if shutil.which(cmd):
+            return cmd
+    return None
+
+
+def cmd_play(args):
+    """播放 .jnl 中的音频。
+
+    流程：
+      1. 解压到临时目录 /tmp/jnlc-play-XXXXXX
+      2. 调用系统播放器播放音频
+      3. 播放结束后清理临时目录
+    """
+    src = Path(args.input).resolve()
+    if not src.is_file():
+        print(f"错误：文件不存在：{src}", file=sys.stderr)
+        return 1
+
+    # 查找可用播放器
+    player = find_player()
+    if not player:
+        print("错误：未找到可用的播放器（mpv/vlc/gst-play/ffplay）", file=sys.stderr)
+        return 1
+
+    # 解压到临时目录
+    tmpdir = Path(tempfile.mkdtemp(prefix='jnlc-play-'))
+    try:
+        try:
+            with zipfile.ZipFile(src, 'r') as zf:
+                zf.extractall(tmpdir)
+        except zipfile.BadZipFile:
+            print(f"错误：不是合法的 .jnl 文件：{src}", file=sys.stderr)
+            return 1
+
+        # 查找音频文件
+        audio = find_audio(tmpdir)
+        if not audio:
+            print("错误：.jnl 中未找到音频文件", file=sys.stderr)
+            return 1
+
+        # 显示正在播放的信息
+        try:
+            meta = read_meta(src)
+            print(f"正在播放：{meta.get('artist', 'Unknown')} - {meta.get('title', 'Unknown')}")
+        except Exception:
+            print(f"正在播放：{audio.name}")
+
+        # 构造播放器命令（不同播放器使用不同的静默/无视频参数）
+        cmd = [player]
+        if player == 'mpv':
+            cmd += ['--no-video', '--really-quiet']
+        elif player == 'vlc':
+            cmd += ['--no-video', '-Irc']
+        elif player == 'ffplay':
+            cmd += ['-nodisp', '-autoexit']
+        cmd.append(str(audio))
+
+        # 调用播放器并等待播放结束
+        return subprocess.call(cmd)
+    finally:
+        # 无论播放成功与否，均清理临时目录
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def cmd_list(args):
+    """列出目录中所有 .jnl 文件的标题、艺术家、时长，以表格形式输出。"""
+    d = Path(args.dir).resolve()
+    if not d.is_dir():
+        print(f"错误：目录不存在：{d}", file=sys.stderr)
+        return 1
+
+    # 查找所有 .jnl 文件并排序
+    jnl_files = sorted(d.glob('*.jnl'))
+    if not jnl_files:
+        print(f"目录 {d} 中没有 .jnl 文件")
+        return 0
+
+    # 表头
+    print(f"{'标题':<30} {'艺术家':<20} {'时长':<8} {'文件'}")
+    print('-' * 80)
+    for p in jnl_files:
+        try:
+            meta = read_meta(p)
+            title = meta.get('title', p.stem)
+            artist = meta.get('artist', 'Unknown')
+            dur = fmt_duration(meta.get('duration', 0))
+            print(f"{title:<30} {artist:<20} {dur:<8} {p.name}")
+        except Exception:
+            print(f"{'(读取失败)':<30} {'':<20} {'':<8} {p.name}")
+    print(f"\n共 {len(jnl_files)} 个文件")
+    return 0
+
+
+def main():
+    """主入口：解析命令行参数并分发到对应子命令。"""
+    parser = argparse.ArgumentParser(
+        prog='jnlc',
+        description='Java Net Lava Compiler - .jnl 音乐包格式工具',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="示例:\n"
+               "  jnlc pack ./my-song './周杰伦 - 稻香.jnl'\n"
+               "  jnlc unpack './周杰伦 - 稻香.jnl' ./my-song\n"
+               "  jnlc info './周杰伦 - 稻香.jnl'\n"
+               "  jnlc play './周杰伦 - 稻香.jnl'\n"
+               "  jnlc list ~/.local/share/jnl-os/music/\n"
+    )
+    sub = parser.add_subparsers(dest='command', help='子命令', required=True)
+
+    # pack 子命令
+    p_pack = sub.add_parser('pack', help='打包目录为 .jnl')
+    p_pack.add_argument('dir', help='源目录（包含 audio.* 与可选 meta.json）')
+    p_pack.add_argument('output', help='输出 .jnl 文件路径')
+    p_pack.set_defaults(func=cmd_pack)
+
+    # unpack 子命令
+    p_unpack = sub.add_parser('unpack', help='解包 .jnl 到目录')
+    p_unpack.add_argument('input', help='输入 .jnl 文件')
+    p_unpack.add_argument('dir', help='输出目录')
+    p_unpack.set_defaults(func=cmd_unpack)
+
+    # info 子命令
+    p_info = sub.add_parser('info', help='查看 .jnl 信息')
+    p_info.add_argument('input', help='.jnl 文件')
+    p_info.set_defaults(func=cmd_info)
+
+    # play 子命令
+    p_play = sub.add_parser('play', help='播放 .jnl')
+    p_play.add_argument('input', help='.jnl 文件')
+    p_play.set_defaults(func=cmd_play)
+
+    # list 子命令
+    p_list = sub.add_parser('list', help='列出目录中的 .jnl')
+    p_list.add_argument('dir', help='目录')
+    p_list.set_defaults(func=cmd_list)
+
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

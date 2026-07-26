@@ -1,0 +1,22 @@
+# Build output
+out/
+work/
+*.iso
+*.iso.part*
+*.sha256sum
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE
+.trae/
+.vscode/
+
+# Logs
+*.log
+
+# Temp files
+upload_iso.ps1
+upload_iso.sh
+copy_project.sh

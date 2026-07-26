@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Midnight 主题配色（午夜黑）
+export THEME_NAME="JNL-Midnight"
+export THEME_DISPLAY="JNL Midnight"
+export BG_DARK="#0a0a0f"
+export BG_MID="#14141c"
+export BG_LIGHT="#1e1e28"
+export FG_DARK="#e0e0e8"
+export FG_MID="#c8c8d0"
+export FG_LIGHT="#b0b0b8"
+export ACCENT="#5a7aff"
+export ACCENT_HOVER="#6a8aff"
+export WARNING="#ffd166"
+export ERROR="#ef476f"
+export SUCCESS="#06d6a0"
+export SHELL_BG="#0a0a0f"
+export SHELL_FG="#e0e0e8"
+export WALLPAPER_COLORS="#0a0a0f #5a7aff #1e1e28"

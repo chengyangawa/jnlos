@@ -1,0 +1,10 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/jnl-logo.svg</file>
+        <file>icons/jnl-player.svg</file>
+        <file>icons/jnl-browser.svg</file>
+        <file>icons/jnl-settings.svg</file>
+        <file>icons/jnl-terminal.svg</file>
+        <file>icons/jnl-files.svg</file>
+    </qresource>
+</RCC>

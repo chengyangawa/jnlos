@@ -1,0 +1,511 @@
+#!/bin/bash
+# ============================================================
+# jnl-deb-installer - Java Net Lava OS 图形化 deb 安装器
+#
+# 功能：
+#   1. 双击 .deb 文件时自动弹出图形化安装界面
+#   2. 显示 deb 包信息（名称、版本、描述、大小）
+#   3. 一键安装到系统
+#   4. 支持卸载已安装的 deb 包
+#
+# 用法：
+#   jnl-deb-installer <file.deb>     # 安装指定 deb 文件
+#   jnl-deb-installer --list          # 列出已安装的 deb 包
+#   jnl-deb-installer --remove <pkg> # 卸载 deb 包
+# ============================================================
+
+# 不要用 set -e，避免闪退，而是手动处理错误
+set -uo pipefail
+
+# 日志文件
+LOG_FILE="/tmp/jnl-deb-installer.log"
+> "$LOG_FILE"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+}
+
+log "deb 安装器启动，参数: $*"
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# ============================================================
+# 错误提示函数（同时支持图形和终端）
+# ============================================================
+show_error() {
+    local title="$1"
+    local msg="$2"
+    log "错误: $title - $msg"
+    
+    # 尝试图形化显示
+    if command -v zenity >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+        zenity --error --title="$title" --text="$msg" --width=400 2>/dev/null || true
+    fi
+    
+    # 同时输出到终端
+    echo -e "${RED}错误：$title${NC}"
+    echo -e "$msg"
+}
+
+show_info() {
+    local title="$1"
+    local msg="$2"
+    log "信息: $title - $msg"
+    
+    if command -v zenity >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+        zenity --info --title="$title" --text="$msg" --width=400 2>/dev/null || true
+    fi
+    
+    echo -e "${GREEN}$title${NC}"
+    echo -e "$msg"
+}
+
+# ============================================================
+# 检查是否提供了文件参数
+# ============================================================
+if [ $# -eq 0 ]; then
+    # 没有参数，打开文件选择对话框
+    if command -v zenity >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+        DEB_FILE=$(zenity --file-selection \
+            --title="选择要安装的 deb 文件" \
+            --file-filter="deb 文件|*.deb|*.DEB" \
+            --file-filter="所有文件|*" 2>/dev/null) || {
+            log "用户取消了文件选择"
+            exit 0
+        }
+    else
+        echo "用法: jnl-deb-installer <file.deb>"
+        exit 1
+    fi
+
+    if [ -z "$DEB_FILE" ]; then
+        exit 0
+    fi
+elif [ "$1" = "--list" ]; then
+    echo -e "${CYAN}已安装的 deb 包：${NC}"
+    if [ -d /var/lib/deb-installed ]; then
+        for pkg_file in /var/lib/deb-installed/*; do
+            if [ -f "$pkg_file" ]; then
+                pkg_name=$(basename "$pkg_file")
+                pkg_version=$(cat "$pkg_file" 2>/dev/null || echo "未知")
+                echo -e "  ${GREEN}●${NC} $pkg_name ($pkg_version)"
+            fi
+        done
+    else
+        echo "  （暂无已安装的 deb 包）"
+    fi
+    exit 0
+elif [ "$1" = "--remove" ]; then
+    if [ $# -lt 2 ]; then
+        echo "用法: jnl-deb-installer --remove <包名>"
+        exit 1
+    fi
+    PKG_NAME="$2"
+    
+    # 检查是否是 root
+    if [ "$(id -u)" -ne 0 ]; then
+        if command -v sudo >/dev/null 2>&1; then
+            exec sudo "$0" --remove "$PKG_NAME"
+        else
+            show_error "权限错误" "需要管理员权限才能卸载"
+            exit 1
+        fi
+    fi
+    
+    # 检查是否安装
+    if [ ! -f "/var/lib/deb-installed/$PKG_NAME" ]; then
+        show_error "卸载失败" "包 $PKG_NAME 未安装"
+        exit 1
+    fi
+    
+    # 确认卸载
+    if command -v zenity >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+        zenity --question --title="卸载确认" \
+            --text="确定要卸载 $PKG_NAME 吗？" \
+            --ok-label="卸载" --cancel-label="取消" 2>/dev/null || {
+            log "用户取消了卸载"
+            exit 0
+        }
+    fi
+    
+    # 获取安装路径列表并删除
+    INSTALL_LOG="/var/lib/deb-installed/$PKG_NAME.files"
+    if [ -f "$INSTALL_LOG" ]; then
+        # 倒序删除（先删文件再删目录）
+        tac "$INSTALL_LOG" | while read -r file_path; do
+            if [ -n "$file_path" ]; then
+                if [ -f "$file_path" ]; then
+                    rm -f "$file_path" 2>/dev/null || true
+                elif [ -d "$file_path" ]; then
+                    rmdir "$file_path" 2>/dev/null || true
+                fi
+            fi
+        done
+    fi
+    rm -f "/var/lib/deb-installed/$PKG_NAME" "/var/lib/deb-installed/$PKG_NAME.files"
+    
+    show_info "卸载成功" "$PKG_NAME 已从系统中移除"
+    exit 0
+else
+    DEB_FILE="$1"
+fi
+
+# ============================================================
+# 检查文件是否存在
+# ============================================================
+if [ ! -f "$DEB_FILE" ]; then
+    show_error "文件不存在" "找不到文件：\n$DEB_FILE"
+    exit 1
+fi
+
+# 确保是 deb 文件
+case "$DEB_FILE" in
+    *.deb|*.DEB) ;;
+    *)
+        show_error "文件格式错误" "不是 deb 文件：\n$DEB_FILE"
+        exit 1
+        ;;
+esac
+
+# 转换为绝对路径
+DEB_FILE=$(readlink -f "$DEB_FILE" 2>/dev/null || echo "$DEB_FILE")
+log "处理文件: $DEB_FILE"
+
+# ============================================================
+# 获取 root 权限
+# ============================================================
+if [ "$(id -u)" -ne 0 ]; then
+    log "当前用户: $(whoami)，尝试获取 root 权限"
+    
+    # 先尝试 sudo（更可靠）
+    if command -v sudo >/dev/null 2>&1; then
+        log "使用 sudo 提权"
+        exec sudo "$0" "$DEB_FILE"
+    elif command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+        log "使用 pkexec 提权"
+        exec pkexec "$0" "$DEB_FILE"
+    else
+        show_error "权限错误" "需要管理员权限才能安装软件包\n请使用 sudo 运行此程序"
+        exit 1
+    fi
+fi
+
+log "已获取 root 权限"
+
+# ============================================================
+# 临时工作目录
+# ============================================================
+WORK_DIR=$(mktemp -d /tmp/deb-install.XXXXXX)
+cleanup() {
+    log "清理临时目录: $WORK_DIR"
+    rm -rf "$WORK_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# ============================================================
+# 解析 deb 文件信息
+# ============================================================
+log "开始解析 deb 文件..."
+
+cd "$WORK_DIR" || {
+    show_error "内部错误" "无法创建临时目录"
+    exit 1
+}
+
+# 解包 deb 文件
+if command -v dpkg-deb >/dev/null 2>&1; then
+    log "使用 dpkg-deb 解包"
+    dpkg-deb -x "$DEB_FILE" "$WORK_DIR/data" 2>>"$LOG_FILE" || log "dpkg-deb -x 失败"
+    dpkg-deb -e "$DEB_FILE" "$WORK_DIR/control" 2>>"$LOG_FILE" || log "dpkg-deb -e 失败"
+elif command -v ar >/dev/null 2>&1; then
+    log "使用 ar 解包"
+    ar x "$DEB_FILE" 2>>"$LOG_FILE" || {
+        show_error "解包失败" "无法解包 deb 文件\n\n请确保已安装 binutils 或 dpkg"
+        exit 1
+    }
+    
+    # 找到 control 和 data 包
+    CONTROL_TAR=$(ls control.tar.* 2>/dev/null | head -1)
+    DATA_TAR=$(ls data.tar.* 2>/dev/null | head -1)
+    
+    if [ -n "$CONTROL_TAR" ]; then
+        mkdir -p "$WORK_DIR/control"
+        case "$CONTROL_TAR" in
+            *.gz)  tar xzf "$CONTROL_TAR" -C "$WORK_DIR/control" 2>>"$LOG_FILE" ;;
+            *.xz)  tar xJf "$CONTROL_TAR" -C "$WORK_DIR/control" 2>>"$LOG_FILE" ;;
+            *.bz2) tar xjf "$CONTROL_TAR" -C "$WORK_DIR/control" 2>>"$LOG_FILE" ;;
+            *.zst) tar --zstd -xf "$CONTROL_TAR" -C "$WORK_DIR/control" 2>>"$LOG_FILE" ;;
+            *)     tar xf "$CONTROL_TAR" -C "$WORK_DIR/control" 2>>"$LOG_FILE" ;;
+        esac
+    fi
+    
+    if [ -n "$DATA_TAR" ]; then
+        mkdir -p "$WORK_DIR/data"
+        case "$DATA_TAR" in
+            *.gz)  tar xzf "$DATA_TAR" -C "$WORK_DIR/data" 2>>"$LOG_FILE" ;;
+            *.xz)  tar xJf "$DATA_TAR" -C "$WORK_DIR/data" 2>>"$LOG_FILE" ;;
+            *.bz2) tar xjf "$DATA_TAR" -C "$WORK_DIR/data" 2>>"$LOG_FILE" ;;
+            *.zst) tar --zstd -xf "$DATA_TAR" -C "$WORK_DIR/data" 2>>"$LOG_FILE" ;;
+            *)     tar xf "$DATA_TAR" -C "$WORK_DIR/data" 2>>"$LOG_FILE" ;;
+        esac
+    fi
+else
+    show_error "缺少工具" "无法解包 deb 文件\n\n请安装 binutils 或 dpkg"
+    exit 1
+fi
+
+# 检查是否解包成功
+if [ ! -d "$WORK_DIR/data" ] && [ ! -d "$WORK_DIR/usr" ]; then
+    show_error "解析失败" "无法解析 deb 文件结构\n\n日志: $LOG_FILE"
+    exit 1
+fi
+
+# 读取包信息
+PKG_NAME="未知"
+PKG_VERSION="未知"
+PKG_ARCH="未知"
+PKG_DESC="无描述"
+PKG_MAINTAINER="未知"
+PKG_DEPENDS="无"
+
+CTRL_FILE=""
+if [ -f "$WORK_DIR/control/control" ]; then
+    CTRL_FILE="$WORK_DIR/control/control"
+elif [ -f "$WORK_DIR/control" ]; then
+    CTRL_FILE="$WORK_DIR/control"
+else
+    CTRL_FILE=$(find "$WORK_DIR" -name "control" -type f 2>/dev/null | head -1)
+fi
+
+if [ -n "$CTRL_FILE" ] && [ -f "$CTRL_FILE" ]; then
+    PKG_NAME=$(grep -m1 "^Package:" "$CTRL_FILE" | cut -d: -f2- | sed 's/^ *//')
+    PKG_VERSION=$(grep -m1 "^Version:" "$CTRL_FILE" | cut -d: -f2- | sed 's/^ *//')
+    PKG_ARCH=$(grep -m1 "^Architecture:" "$CTRL_FILE" | cut -d: -f2- | sed 's/^ *//')
+    PKG_DESC=$(grep -m1 "^Description:" "$CTRL_FILE" | cut -d: -f2- | sed 's/^ *//')
+    PKG_MAINTAINER=$(grep -m1 "^Maintainer:" "$CTRL_FILE" | cut -d: -f2- | sed 's/^ *//')
+    PKG_DEPENDS=$(grep -m1 "^Depends:" "$CTRL_FILE" | cut -d: -f2- | sed 's/^ *//')
+fi
+
+# 计算安装大小
+if [ -d "$WORK_DIR/data" ]; then
+    INSTALLED_SIZE=$(du -sh "$WORK_DIR/data" 2>/dev/null | cut -f1)
+elif [ -d "$WORK_DIR/usr" ] || [ -d "$WORK_DIR/opt" ]; then
+    INSTALLED_SIZE=$(du -sh "$WORK_DIR" 2>/dev/null | cut -f1)
+else
+    INSTALLED_SIZE="未知"
+fi
+
+DEB_SIZE=$(du -h "$DEB_FILE" 2>/dev/null | cut -f1)
+
+log "包信息: 名称=$PKG_NAME, 版本=$PKG_VERSION, 大小=$DEB_SIZE / $INSTALLED_SIZE"
+
+# ============================================================
+# 构建安装信息对话框
+# ============================================================
+INFO_TEXT="<b>📦 包信息</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>名称：</b> $PKG_NAME
+<b>版本：</b> $PKG_VERSION
+<b>架构：</b> $PKG_ARCH
+<b>描述：</b> $PKG_DESC
+<b>维护者：</b> $PKG_MAINTAINER
+<b>deb 大小：</b> $DEB_SIZE
+<b>安装大小：</b> $INSTALLED_SIZE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [ -n "$PKG_DEPENDS" ] && [ "$PKG_DEPENDS" != "无" ]; then
+    INFO_TEXT="$INFO_TEXT
+
+<b>依赖：</b> $PKG_DEPENDS"
+fi
+
+INFO_TEXT="$INFO_TEXT
+
+
+<i>点击「安装」将此软件包安装到系统中</i>"
+
+# 显示安装确认对话框
+if command -v zenity >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+    zenity --question --title="deb 安装器 - $PKG_NAME" \
+        --width=500 --height=450 \
+        --ok-label="安装" --cancel-label="取消" \
+        --text="$INFO_TEXT" 2>/dev/null
+    
+    if [ $? -ne 0 ]; then
+        log "用户取消了安装"
+        exit 0
+    fi
+else
+    echo -e "${CYAN}$INFO_TEXT${NC}"
+    read -p "是否安装？[y/N]: " confirm
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+        exit 0
+    fi
+fi
+
+# ============================================================
+# 开始安装
+# ============================================================
+log "开始安装 $PKG_NAME"
+
+# 查找 data 目录
+DATA_DIR=""
+if [ -d "$WORK_DIR/data" ]; then
+    DATA_DIR="$WORK_DIR/data"
+elif [ -d "$WORK_DIR/usr" ] || [ -d "$WORK_DIR/opt" ]; then
+    DATA_DIR="$WORK_DIR"
+fi
+
+if [ -z "$DATA_DIR" ]; then
+    show_error "安装失败" "找不到数据目录\n\n日志: $LOG_FILE"
+    exit 1
+fi
+
+# 创建安装记录目录
+mkdir -p /var/lib/deb-installed
+
+# 安装进度
+if command -v zenity >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+    (
+        echo "5"
+        echo "# 正在准备安装环境..."
+        sleep 0.5
+        
+        echo "10"
+        echo "# 正在解压文件..."
+        sleep 0.5
+        
+        # 记录安装的文件列表
+        FILES_LOG="/var/lib/deb-installed/${PKG_NAME}.files"
+        > "$FILES_LOG"
+        
+        # 复制所有文件到系统
+        cd "$DATA_DIR" || exit 1
+        
+        # 先统计文件总数
+        total_files=$(find . -type f | wc -l)
+        current=0
+        
+        find . -type f | while read -r src_file; do
+            dest_file="${src_file#./}"
+            dest_path="/$dest_file"
+            
+            # 创建目标目录
+            mkdir -p "$(dirname "$dest_path")" 2>/dev/null || true
+            
+            # 复制文件
+            cp -f "$src_file" "$dest_path" 2>/dev/null || true
+            
+            # 记录文件路径
+            echo "$dest_path" >> "$FILES_LOG"
+            
+            current=$((current + 1))
+            if [ $((current % 10)) -eq 0 ]; then
+                percent=$((10 + (current * 75 / total_files)))
+                echo "$percent"
+                echo "# 正在安装文件... ($current/$total_files)"
+            fi
+        done
+        
+        # 也记录目录
+        find . -type d | while read -r src_dir; do
+            dest_dir="${src_dir#./}"
+            echo "/$dest_dir" >> "$FILES_LOG"
+        done
+        
+        echo "85"
+        echo "# 正在设置权限..."
+        sleep 0.5
+        
+        # 设置可执行权限
+        if [ -d "/usr/bin" ]; then
+            chmod 755 /usr/bin/* 2>/dev/null || true
+        fi
+        
+        # 更新桌面数据库
+        if [ -d "/usr/share/applications" ]; then
+            update-desktop-database /usr/share/applications 2>/dev/null || true
+        fi
+        
+        # 更新图标缓存
+        if [ -d "/usr/share/icons/hicolor" ]; then
+            gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+        fi
+        
+        echo "95"
+        echo "# 正在完成安装..."
+        sleep 0.5
+        
+        # 保存安装信息
+        echo "$PKG_VERSION" > "/var/lib/deb-installed/${PKG_NAME}"
+        
+        echo "100"
+        echo "# 安装完成！"
+        sleep 0.3
+        
+    ) | zenity --progress --title="正在安装 $PKG_NAME" \
+        --text="正在安装..." \
+        --percentage=0 \
+        --auto-close \
+        --width=500 2>/dev/null
+else
+    # 终端模式安装
+    echo "正在安装 $PKG_NAME..."
+    
+    FILES_LOG="/var/lib/deb-installed/${PKG_NAME}.files"
+    > "$FILES_LOG"
+    
+    cd "$DATA_DIR" || exit 1
+    
+    find . -type f | while read -r src_file; do
+        dest_file="${src_file#./}"
+        dest_path="/$dest_file"
+        mkdir -p "$(dirname "$dest_path")" 2>/dev/null || true
+        cp -f "$src_file" "$dest_path" 2>/dev/null || true
+        echo "$dest_path" >> "$FILES_LOG"
+    done
+    
+    find . -type d | while read -r src_dir; do
+        dest_dir="${src_dir#./}"
+        echo "/$dest_dir" >> "$FILES_LOG"
+    done
+    
+    # 更新数据库
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+    gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+    
+    echo "$PKG_VERSION" > "/var/lib/deb-installed/${PKG_NAME}"
+    echo "安装完成！"
+fi
+
+# ============================================================
+# 安装完成
+# ============================================================
+log "安装完成: $PKG_NAME"
+
+COMPLETION_TEXT="✅ <b>$PKG_NAME</b> 安装成功！
+
+版本：$PKG_VERSION
+安装后大小：$INSTALLED_SIZE"
+
+# 查找可能的可执行文件
+EXEC_HINT=""
+if [ -d "/usr/bin" ]; then
+    # 查找新安装的可执行文件（通过文件名匹配包名）
+    NEW_BIN=$(ls /usr/bin/ 2>/dev/null | grep -i "${PKG_NAME%%-*}" | head -3)
+    if [ -n "$NEW_BIN" ]; then
+        EXEC_HINT="
+
+<i>你可以在应用菜单中找到此程序，或在终端运行相关命令</i>"
+    fi
+fi
+
+show_info "安装完成" "$COMPLETION_TEXT$EXEC_HINT"
+
+log "deb 安装器退出，成功"
+exit 0

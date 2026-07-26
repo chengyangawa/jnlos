@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Ocean 主题配色（海洋蓝，主色青蓝）
+export THEME_NAME="JNL-Ocean"
+export THEME_DISPLAY="JNL Ocean"
+export BG_DARK="#0f1e2e"
+export BG_MID="#1a2e3e"
+export BG_LIGHT="#243b50"
+export FG_DARK="#e0e8f0"
+export FG_MID="#c8d4e0"
+export FG_LIGHT="#b0c0d0"
+export ACCENT="#4cc4e6"
+export ACCENT_HOVER="#5fd3f5"
+export WARNING="#ffd166"
+export ERROR="#ef476f"
+export SUCCESS="#06d6a0"
+export SHELL_BG="#0f1e2e"
+export SHELL_FG="#e0e8f0"
+export WALLPAPER_COLORS="#0f1e2e #4cc4e6 #06d6a0"

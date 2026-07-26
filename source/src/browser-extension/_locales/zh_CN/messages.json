@@ -1,0 +1,17 @@
+{
+  "extName": { "message": "JNL OS Music Tool", "description": "扩展名称" },
+  "extDescription": { "message": "Java Net Lava OS 音乐下载工具", "description": "扩展描述" },
+  "toolButton": { "message": "⚙️ Tool", "description": "工具按钮文字" },
+  "addMusic": { "message": "🎵 添加指定音乐到桌面音乐", "description": "添加音乐菜单项" },
+  "showStatus": { "message": "📊 显示当前歌曲信息", "description": "显示状态菜单项" },
+  "noSong": { "message": "未检测到正在播放的音乐", "description": "无歌曲提示" },
+  "downloading": { "message": "正在下载: $SONG$", "description": "下载中提示" },
+  "success": { "message": "已保存到桌面音乐库: $PATH$", "description": "成功提示" },
+  "failed": { "message": "下载失败: $ERROR$", "description": "失败提示" },
+  "preparing": { "message": "准备下载...", "description": "准备中" },
+  "downloadingAudio": { "message": "下载音频中...", "description": "下载音频" },
+  "downloadingCover": { "message": "下载封面中...", "description": "下载封面" },
+  "packing": { "message": "打包中...", "description": "打包中" },
+  "saving": { "message": "保存到音乐库...", "description": "保存中" },
+  "done": { "message": "完成", "description": "完成" }
+}

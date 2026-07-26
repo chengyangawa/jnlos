@@ -1,0 +1,56 @@
+#!/bin/bash
+
+USER_HOME="/home/jnluser"
+KEYBOARD_DIR="$USER_HOME/.config/kglobalshortcutsrc"
+
+mkdir -p "$(dirname "$KEYBOARD_DIR")"
+
+cat > "$KEYBOARD_DIR" <<'EOF'
+[Global Shortcuts]
+Show KRunner=Meta+Space
+Switch User=Meta+L
+
+[ksmserver]
+Logout...=Ctrl+Alt+Delete
+
+[plasmashell]
+activate window menu=Alt+Space
+switch to next activity=Meta+Tab
+switch to previous activity=Meta+Shift+Tab
+activate task manager entry=Meta+%1
+toggle dashboard=Meta+W
+show activity switcher=Meta+Tab
+show system tray menu=Meta+T
+
+[System Settings]
+kcm_kglobalaccel=
+kcm_kwindecoration=
+kcm_kwinscreenedges=
+kcm_kwinoptions=
+
+[org.kde.kdecoration2]
+buttonClose=Alt+F4
+
+[org.kde.kwin]
+Switch Window=Alt+Tab
+Switch Window (Reverse)=Alt+Shift+Tab
+Switch to Desktop 1=Meta+1
+Switch to Desktop 2=Meta+2
+Switch to Desktop 3=Meta+3
+Switch to Desktop 4=Meta+4
+Move Window to Desktop 1=Meta+Shift+1
+Move Window to Desktop 2=Meta+Shift+2
+Move Window to Desktop 3=Meta+Shift+3
+Move Window to Desktop 4=Meta+Shift+4
+Close Window=Alt+F4
+Minimize Window=Alt+F9
+Maximize Window=Alt+F10
+Toggle Fullscreen=F11
+Window Operations Menu=Alt+F3
+Show Desktop=Meta+D
+Lock Screen=Meta+L
+EOF
+
+chown jnluser:jnluser "$KEYBOARD_DIR"
+
+echo "Windows风格快捷键配置完成"

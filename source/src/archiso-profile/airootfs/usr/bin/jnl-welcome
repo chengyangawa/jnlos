@@ -1,0 +1,14 @@
+#!/bin/bash
+
+VERSION=$(cat /etc/jnl-os-version 2>/dev/null || echo "classic1.5")
+OS_NAME="Java Net Lava OS"
+IMAGE_PATH="/usr/share/icons/jnl-os/OS.svg"
+
+yad --center --width=500 --height=380 --title="欢迎使用" \
+    --fixed --no-minimize \
+    --image="$IMAGE_PATH" \
+    --text="<big><b>欢迎使用 $OS_NAME</b></big>\n\n版本：<b>$VERSION</b>\n\n基于 Arch Linux + KDE Plasma 6" \
+    --buttons-layout=center \
+    --button="开始使用":0
+
+exit 0

@@ -1,0 +1,22 @@
+[Unit]
+Description=Open WebUI - AI Chat Interface
+After=ollama.service
+Requires=ollama.service
+
+[Service]
+Type=simple
+User=jnluser
+Environment="HOME=/home/jnluser"
+Environment="WEBUI_AUTH=false"
+Environment="ENABLE_SIGNUP=false"
+Environment="ENV=prod"
+Environment="HOST=0.0.0.0"
+Environment="PORT=8080"
+Environment="OLLAMA_BASE_URL=http://localhost:11434"
+ExecStart=/usr/bin/python -m open_webui.main
+WorkingDirectory=/home/jnluser
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

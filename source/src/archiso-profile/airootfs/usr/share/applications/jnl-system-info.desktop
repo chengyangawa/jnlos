@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=系统信息
+GenericName=系统信息
+Comment=查看系统详细信息
+Exec=jnl-system-info
+Icon=/usr/share/icons/jnl-os/OS.svg
+Terminal=false
+Type=Application
+Categories=System;Settings;
+Keywords=system;info;about;

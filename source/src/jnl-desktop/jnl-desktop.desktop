@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=JNL Desktop
+Name[zh_CN]=JNL 桌面
+Comment=Java Net Lava Desktop Environment
+Comment[zh_CN]=Java Net Lava 桌面环境
+Exec=jnl-desktop
+Icon=jnl-logo
+Terminal=false
+Type=Application
+Categories=System;Desktop;
+X-GNOME-Autostart-enabled=true
+NoDisplay=false

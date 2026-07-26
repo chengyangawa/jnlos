@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Gold 主题配色（金色）
+export THEME_NAME="JNL-Gold"
+export THEME_DISPLAY="JNL Gold"
+export BG_DARK="#2e2818"
+export BG_MID="#3e3424"
+export BG_LIGHT="#4e4030"
+export FG_DARK="#f5ecd0"
+export FG_MID="#e0d4b0"
+export FG_LIGHT="#c8bc98"
+export ACCENT="#f5c842"
+export ACCENT_HOVER="#ffd960"
+export WARNING="#ff9a3c"
+export ERROR="#e06c75"
+export SUCCESS="#a6e3a1"
+export SHELL_BG="#2e2818"
+export SHELL_FG="#f5ecd0"
+export WALLPAPER_COLORS="#2e2818 #f5c842 #ff9a3c"

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1"/>
+      <feOffset dx="0" dy="1.5" result="offsetBlur"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="url(#bgGrad)"/>
+  <rect x="2" y="2" width="44" height="22" rx="11" fill="#FFFFFF" opacity="0.08"/>
+  <path d="M11 16 C11 14.9 11.9 14 13 14 L19 14 C19.5 14 20 14.2 20.4 14.6 L22.6 16.8 C23 17.2 23.5 17.4 24 17.4 L35 17.4 C36.1 17.4 37 18.3 37 19.4 L37 33 C37 34.1 36.1 35 35 35 L13 35 C11.9 35 11 34.1 11 33 Z" fill="#FFFFFF" opacity="0.25"/>
+  <path d="M11 19 C11 17.9 11.9 17 13 17 L19 17 C19.5 17 20 17.2 20.4 17.6 L22.6 19.8 C23 20.2 23.5 20.4 24 20.4 L35 20.4 C36.1 20.4 37 21.3 37 22.4 L37 33 C37 34.1 36.1 35 35 35 L13 35 C11.9 35 11 34.1 11 33 Z" fill="#FFFFFF" filter="url(#softShadow)"/>
+  <rect x="16" y="25" width="16" height="2" rx="1" fill="#06B6D4" opacity="0.6"/>
+  <rect x="16" y="29" width="11" height="2" rx="1" fill="#06B6D4" opacity="0.4"/>
+</svg>

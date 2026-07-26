@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=JNL Browser
+Name[zh_CN]=JNL 浏览器
+Comment=Java Net Lava Browser with built-in QQ Music Downloader
+Comment[zh_CN]=Java Net Lava 浏览器，内置 QQ 音乐下载
+Exec=jnl-browser
+Icon=jnl-browser
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+StartupNotify=true

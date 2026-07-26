@@ -1,0 +1,10 @@
+{
+  "uuid": "jnl-music@jnl-os.local",
+  "name": "JNL Music Control",
+  "description": "Java Net Lava OS music control widget for GNOME Shell top bar",
+  "description-original": "Java Net Lava OS 顶栏音乐控件",
+  "shell-version": ["45", "46", "47"],
+  "url": "https://jnl-os.local",
+  "version": 1,
+  "session-modes": ["user", "unlock-dialog"]
+}

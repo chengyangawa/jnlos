@@ -1,0 +1,982 @@
+#!/usr/bin/env python3
+"""
+jnlp - Java Net Lava Player
+.jnl 音乐包格式桌面播放器
+
+依赖：
+  - python-gobject (PyGObject)
+  - gtk4
+  - gstreamer + gst-plugins-good (+ gst-plugins-base)
+
+.jnl 是 Java Net Lava OS 自定义的音乐打包格式（本质为 ZIP），
+内部包含 audio.<ext>、meta.json、cover.jpg(可选)、lyrics.lrc(可选)。
+格式规范详见 src/jnl-tools/spec/FORMAT.md。
+
+功能：
+  - 扫描 ~/.local/share/jnl-os/music/*.jnl 音乐库
+  - GStreamer 播放/暂停/停止/上一首/下一首/拖动跳转/音量调节
+  - 元数据、封面、时间同步歌词显示
+  - DBus 服务 org.jnl_os.Player 供 GNOME Shell 扩展控制
+
+用法：
+  jnlp                  打开图形界面并扫描音乐库
+  jnlp <file.jnl>       直接播放指定 .jnl 文件
+  jnlp --help           显示帮助
+"""
+import os
+import re
+import sys
+import json
+import shutil
+import zipfile
+import tempfile
+from pathlib import Path
+
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Gst', '1.0')
+gi.require_version('GdkPixbuf', '2.0')
+gi.require_version('GLib', '2.0')
+
+from gi.repository import Gtk, Gst, GLib, GdkPixbuf, Gio
+
+# 初始化 GStreamer
+Gst.init(None)
+
+# 音乐库目录：以规范约定的 ~/.local/share/jnl-os/music 为主
+MUSIC_DIR = Path.home() / '.local' / 'share' / 'jnl-os' / 'music'
+
+# 支持的音频扩展名（前四项符合 FORMAT.md 规范，.wav/.opus 作为兜底）
+SUPPORTED_AUDIO = ('.mp3', '.flac', '.ogg', '.m4a', '.wav', '.opus')
+
+# DBus 自省 XML：定义 org.jnl_os.Player 接口
+DBUS_INTROSPECTION_XML = """
+<node>
+  <interface name='org.jnl_os.Player'>
+    <method name='Play'/>
+    <method name='Pause'/>
+    <method name='Next'/>
+    <method name='Previous'/>
+    <method name='Stop'/>
+    <method name='PlayTrack'>
+      <arg type='i' name='index' direction='in'/>
+    </method>
+    <method name='GetStatus'>
+      <arg type='s' name='status' direction='out'/>
+      <arg type='i' name='position_ms' direction='out'/>
+      <arg type='i' name='duration_ms' direction='out'/>
+    </method>
+    <method name='GetSongInfo'>
+      <arg type='s' name='title' direction='out'/>
+      <arg type='s' name='artist' direction='out'/>
+      <arg type='s' name='album' direction='out'/>
+      <arg type='i' name='duration_sec' direction='out'/>
+    </method>
+    <method name='SetVolume'>
+      <arg type='d' name='volume' direction='in'/>
+    </method>
+    <method name='GetVolume'>
+      <arg type='d' name='volume' direction='out'/>
+    </method>
+    <property name='Status' type='s' access='read'/>
+    <property name='Volume' type='d' access='read'/>
+    <signal name='SongChanged'>
+      <arg type='s' name='title'/>
+      <arg type='s' name='artist'/>
+    </signal>
+    <signal name='StatusChanged'>
+      <arg type='s' name='status'/>
+    </signal>
+  </interface>
+</node>
+"""
+
+
+class JnlTrack:
+    """单个 .jnl 曲目的封装：读取元数据、按需解压、解析歌词。"""
+
+    def __init__(self, jnl_path):
+        self.path = Path(jnl_path)
+        self.meta = {}
+        self.audio_path = None      # 解压后的临时音频路径
+        self.cover_path = None      # 解压后的封面路径
+        self.lyrics = []            # [(time_ms, text), ...]
+        self._tmpdir = None
+        self._load()
+
+    def _load(self):
+        """从 .jnl 中读取 meta.json（不解压整个包，仅读取该条目）。"""
+        try:
+            with zipfile.ZipFile(self.path, 'r') as zf:
+                try:
+                    with zf.open('meta.json') as f:
+                        self.meta = json.load(f)
+                except KeyError:
+                    # meta.json 不在根目录，尝试查找任意 meta.json
+                    names = [n for n in zf.namelist()
+                             if n.endswith('meta.json') and not n.startswith('__')]
+                    if names:
+                        with zf.open(names[0]) as f:
+                            self.meta = json.load(f)
+                    else:
+                        self.meta = {'title': self.path.stem, 'artist': 'Unknown'}
+        except Exception as e:
+            print(f"警告：无法读取 {self.path} 的 meta.json: {e}")
+            self.meta = {'title': self.path.stem, 'artist': 'Unknown'}
+
+    def extract(self):
+        """解压 .jnl 到临时目录，并定位音频/封面/歌词。"""
+        if self._tmpdir:
+            return  # 已解压
+        self._tmpdir = Path(tempfile.mkdtemp(prefix='jnlp-'))
+        try:
+            with zipfile.ZipFile(self.path, 'r') as zf:
+                # 安全解压：禁止路径穿越
+                for member in zf.namelist():
+                    # 规范约束：条目位于根目录，无 .. 段、无绝对路径
+                    if member.startswith(('/', '\\')) or '..' in member.split('/'):
+                        print(f"警告：跳过不安全条目 {member}")
+                        continue
+                    zf.extract(member, self._tmpdir)
+        except Exception as e:
+            print(f"错误：解压 {self.path} 失败: {e}")
+            return
+
+        # 定位音频：优先 audio.<ext>
+        for ext in SUPPORTED_AUDIO:
+            p = self._tmpdir / ('audio' + ext)
+            if p.exists():
+                self.audio_path = p
+                break
+        # 兜底：扫描目录中任意受支持的音频
+        if not self.audio_path:
+            for p in self._tmpdir.iterdir():
+                if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO:
+                    self.audio_path = p
+                    break
+
+        # 定位封面
+        for name in ('cover.jpg', 'cover.jpeg', 'cover.png'):
+            p = self._tmpdir / name
+            if p.exists():
+                self.cover_path = p
+                break
+
+        # 解析歌词
+        lrc = self._tmpdir / 'lyrics.lrc'
+        if lrc.exists():
+            try:
+                self.lyrics = self._parse_lrc(lrc.read_text(encoding='utf-8'))
+            except Exception as e:
+                print(f"警告：解析歌词失败: {e}")
+                self.lyrics = []
+
+    def cleanup(self):
+        """清理临时目录。"""
+        if self._tmpdir and self._tmpdir.exists():
+            shutil.rmtree(self._tmpdir, ignore_errors=True)
+            self._tmpdir = None
+            self.audio_path = None
+            self.cover_path = None
+
+    @staticmethod
+    def _parse_lrc(text):
+        """解析 LRC 格式歌词，返回 [(time_ms, text), ...]。
+        支持 [mm:ss.xx] 与 [mm:ss]，支持一行多时间标签。
+        """
+        result = []
+        time_re = re.compile(r'\[(\d+):(\d+)(?:[.:](\d+))?\]')
+        for line in text.splitlines():
+            line = line.rstrip('\r')
+            if not line.strip():
+                continue
+            # 提取行内所有时间标签，剩余部分为歌词文本
+            matches = list(time_re.finditer(line))
+            if not matches:
+                continue
+            text_part = line[matches[-1].end():].strip()
+            for m in matches:
+                mm = int(m.group(1))
+                ss = int(m.group(2))
+                frac = m.group(3)
+                ms = int(frac.ljust(3, '0')[:3]) if frac else 0
+                t = mm * 60000 + ss * 1000 + ms
+                result.append((t, text_part))
+        return sorted(result, key=lambda x: x[0])
+
+    @property
+    def title(self):
+        return self.meta.get('title', self.path.stem)
+
+    @property
+    def artist(self):
+        return self.meta.get('artist', 'Unknown')
+
+    @property
+    def album(self):
+        return self.meta.get('album', '')
+
+    @property
+    def duration_sec(self):
+        try:
+            return int(self.meta.get('duration', 0))
+        except (TypeError, ValueError):
+            return 0
+
+
+class JnlpApplication(Gtk.Application):
+    """JNL Player 主应用（GTK4 Application，单实例）。"""
+
+    def __init__(self):
+        super().__init__(application_id='org.jnl_os.Player',
+                         flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.tracks = []
+        self.current_index = -1
+        self.current_track = None
+        self.player = None
+        self.is_playing = False
+        self._lyrics_update_id = None
+        self._seek_dragging = False        # 进度条是否正被用户拖动
+        self._suppress_select = False     # 程序设置选中时屏蔽回调
+        self._dbus_connection = None
+        self._dbus_reg_id = None
+        self._seek_handler_id = 0
+        self._volume_handler_id = 0
+        self._initialized = False
+
+    # ------------------------------------------------------------------ #
+    # 命令行处理
+    # ------------------------------------------------------------------ #
+    def do_local_command_line(self, args):
+        """在发起进程本地处理命令行。
+        --help 在本地直接输出并退出（不转发到主实例）。
+        """
+        argv = list(args)
+        if '--help' in argv or '-h' in argv:
+            self._print_help()
+            return (0, [])
+        # 其余交给默认处理（转发到已运行实例或本地启动）
+        return Gtk.Application.do_local_command_line(self, args)
+
+    def do_command_line(self, cmdline):
+        """主实例处理命令行（含单实例转发场景）。"""
+        args = cmdline.get_arguments()
+        file_arg = None
+        for a in args[1:]:
+            if a.startswith('-'):
+                continue
+            p = Path(a)
+            if p.is_file() and p.suffix.lower() == '.jnl':
+                file_arg = str(p.resolve())
+                break
+        # 确保窗口存在并前置
+        self.activate()
+        if file_arg:
+            # 等待 UI 就绪后播放
+            GLib.idle_add(self._play_external_file, file_arg)
+        return 0
+
+    @staticmethod
+    def _print_help():
+        print("""jnlp - JNL Player (Java Net Lava Player)
+.jnl 音乐包格式桌面播放器
+
+用法:
+  jnlp                  打开图形界面并扫描音乐库
+  jnlp <file.jnl>       直接播放指定的 .jnl 文件
+  jnlp --help           显示本帮助信息
+
+音乐库目录: ~/.local/share/jnl-os/music/
+
+DBus 接口: org.jnl_os.Player  (对象路径 /org/jnl_os/Player)
+  方法: Play / Pause / Next / Previous / Stop / PlayTrack
+        GetStatus / GetSongInfo / SetVolume / GetVolume
+  信号: SongChanged / StatusChanged
+
+依赖: python-gobject, gtk4, gstreamer, gst-plugins-good""")
+
+    # ------------------------------------------------------------------ #
+    # 应用激活
+    # ------------------------------------------------------------------ #
+    def do_activate(self):
+        """激活应用：创建/前置主窗口。"""
+        self._ensure_window()
+
+    def _ensure_window(self):
+        """确保主窗口已构建（仅构建一次），并前置显示。"""
+        win = self.get_active_window()
+        if win is None:
+            win = Gtk.ApplicationWindow(application=self)
+            win.set_title('JNL Player')
+            win.set_default_size(900, 640)
+            self._build_ui(win)
+            self._init_player()
+            self._scan_library()
+            self._start_dbus()
+            self._initialized = True
+        win.present()
+
+    # ------------------------------------------------------------------ #
+    # UI 构建
+    # ------------------------------------------------------------------ #
+    def _build_ui(self, win):
+        """构建主界面。"""
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box.set_margin_start(12)
+        main_box.set_margin_end(12)
+        main_box.set_margin_top(12)
+        main_box.set_margin_bottom(12)
+
+        # === 顶部：封面 + 元数据 ===
+        info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
+        self.cover_image = Gtk.Image()
+        self.cover_image.set_pixel_size(150)
+        self.cover_image.set_from_icon_name('audio-x-generic')
+        self.cover_image.set_size_request(150, 150)
+        info_box.append(self.cover_image)
+
+        meta_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.title_label = Gtk.Label(label='未选择歌曲')
+        self.title_label.set_halign(Gtk.Align.START)
+        self.title_label.add_css_class('title-1')
+        self.title_label.set_wrap(True)
+        self.artist_label = Gtk.Label(label='')
+        self.artist_label.set_halign(Gtk.Align.START)
+        self.album_label = Gtk.Label(label='')
+        self.album_label.set_halign(Gtk.Align.START)
+        self.duration_info_label = Gtk.Label(label='')
+        self.duration_info_label.set_halign(Gtk.Align.START)
+        self.duration_info_label.add_css_class('dim-label')
+        meta_box.append(self.title_label)
+        meta_box.append(self.artist_label)
+        meta_box.append(self.album_label)
+        meta_box.append(self.duration_info_label)
+        info_box.append(meta_box)
+        main_box.append(info_box)
+
+        # === 中部：歌词 + 歌单 ===
+        content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                              spacing=10, homogeneous=True)
+
+        # 歌词区
+        lyrics_frame = Gtk.Frame(label='歌词')
+        lyrics_scroll = Gtk.ScrolledWindow()
+        lyrics_scroll.set_vexpand(True)
+        self.lyrics_label = Gtk.Label(label='（无歌词）')
+        self.lyrics_label.set_vexpand(True)
+        self.lyrics_label.set_valign(Gtk.Align.CENTER)
+        self.lyrics_label.set_justify(Gtk.Justification.CENTER)
+        self.lyrics_label.set_wrap(True)
+        lyrics_scroll.set_child(self.lyrics_label)
+        lyrics_frame.set_child(lyrics_scroll)
+        content_box.append(lyrics_frame)
+
+        # 歌单区
+        playlist_frame = Gtk.Frame(label='歌单')
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_min_content_width(280)
+        scroll.set_vexpand(True)
+        self.track_list = Gtk.ListBox()
+        self.track_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.track_list.connect('row-selected', self._on_track_selected)
+        scroll.set_child(self.track_list)
+        playlist_frame.set_child(scroll)
+        content_box.append(playlist_frame)
+        main_box.append(content_box)
+
+        # === 控制区 ===
+        ctrl_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+
+        # 按钮行
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                          spacing=5, homogeneous=True)
+        self.prev_btn = Gtk.Button(label='上一首')
+        self.prev_btn.connect('clicked', self._on_prev)
+        self.play_btn = Gtk.Button(label='播放')
+        self.play_btn.connect('clicked', self._on_play_pause)
+        self.next_btn = Gtk.Button(label='下一首')
+        self.next_btn.connect('clicked', self._on_next)
+        self.stop_btn = Gtk.Button(label='停止')
+        self.stop_btn.connect('clicked', self._on_stop)
+        btn_box.append(self.prev_btn)
+        btn_box.append(self.play_btn)
+        btn_box.append(self.next_btn)
+        btn_box.append(self.stop_btn)
+        ctrl_box.append(btn_box)
+
+        # 进度条
+        progress_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.time_label = Gtk.Label(label='0:00')
+        self.time_label.set_xalign(1.0)
+        self.time_label.set_size_request(40, -1)
+        self.progress_bar = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.progress_bar.set_draw_value(False)
+        self.progress_bar.set_hexpand(True)
+        self._seek_handler_id = self.progress_bar.connect(
+            'value-changed', self._on_progress_value_changed)
+        # 拖动手势：拖动期间不回写进度，释放时跳转
+        drag = Gtk.GestureDrag()
+        drag.set_button(1)
+        drag.connect('drag-begin', self._on_seek_begin)
+        drag.connect('drag-end', self._on_seek_end)
+        self.progress_bar.add_controller(drag)
+        self.duration_label = Gtk.Label(label='0:00')
+        self.duration_label.set_xalign(0.0)
+        self.duration_label.set_size_request(40, -1)
+        progress_box.append(self.time_label)
+        progress_box.append(self.progress_bar)
+        progress_box.append(self.duration_label)
+        ctrl_box.append(progress_box)
+
+        # 音量
+        vol_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        vol_label = Gtk.Label(label='音量')
+        self.volume_btn = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.volume_btn.set_value(80)
+        self.volume_btn.set_draw_value(False)
+        self.volume_btn.set_size_request(160, -1)
+        self._volume_handler_id = self.volume_btn.connect(
+            'value-changed', self._on_volume_changed)
+        vol_box.append(vol_label)
+        vol_box.append(self.volume_btn)
+        ctrl_box.append(vol_box)
+
+        main_box.append(ctrl_box)
+        win.set_child(main_box)
+
+    # ------------------------------------------------------------------ #
+    # 音乐库扫描
+    # ------------------------------------------------------------------ #
+    def _scan_library(self):
+        """扫描 MUSIC_DIR 下的 .jnl 文件并填充歌单。"""
+        try:
+            MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(f"警告：无法创建音乐库目录 {MUSIC_DIR}: {e}")
+
+        self.tracks = []
+        # 清空列表
+        while True:
+            row = self.track_list.get_first_child()
+            if row is None:
+                break
+            self.track_list.remove(row)
+
+        for jnl_path in sorted(MUSIC_DIR.glob('*.jnl')):
+            try:
+                track = JnlTrack(jnl_path)
+                self.tracks.append(track)
+            except Exception as e:
+                print(f"警告：跳过 {jnl_path}: {e}")
+                continue
+            label_text = f"{len(self.tracks)}. {track.title} - {track.artist}"
+            row = Gtk.ListBoxRow()
+            row.set_child(Gtk.Label(label=label_text, halign=Gtk.Align.START,
+                                    margin_start=6, margin_end=6,
+                                    margin_top=3, margin_bottom=3))
+            self.track_list.append(row)
+
+    # ------------------------------------------------------------------ #
+    # GStreamer 播放器
+    # ------------------------------------------------------------------ #
+    def _init_player(self):
+        """初始化 GStreamer playbin。"""
+        self.player = Gst.ElementFactory.make('playbin', 'player')
+        if self.player is None:
+            print("错误：无法创建 GStreamer playbin，请确认已安装 gst-plugins-base。")
+            return
+        self.player.set_property('volume', 0.8)
+        bus = self.player.get_bus()
+        bus.add_signal_watch()
+        bus.connect('message::eos', self._on_eos)
+        bus.connect('message::error', self._on_error)
+        bus.connect('message::state-changed', self._on_state_changed)
+
+    def _play_track(self, index):
+        """播放指定索引的歌曲。"""
+        if not self.tracks or index < 0 or index >= len(self.tracks):
+            return
+        if self.player is None:
+            print("错误：播放器未初始化")
+            return
+
+        # 清理前一首的临时目录
+        if self.current_track and self.current_track is not self.tracks[index]:
+            self.current_track.cleanup()
+
+        self.current_index = index
+        self.current_track = self.tracks[index]
+        try:
+            self.current_track.extract()
+        except Exception as e:
+            print(f"错误：解压 {self.current_track.path} 失败: {e}")
+            return
+
+        # 更新元数据 UI
+        self.title_label.set_label(self.current_track.title)
+        self.artist_label.set_label(f'艺术家: {self.current_track.artist}')
+        self.album_label.set_label(f'专辑: {self.current_track.album or "—"}')
+        dur = self.current_track.duration_sec
+        self.duration_info_label.set_label(
+            f'时长: {self._fmt_time(dur)}'
+            + (f'  ·  {self.current_track.meta.get("audio_bitrate")}kbps'
+               if self.current_track.meta.get('audio_bitrate') else ''))
+
+        # 加载封面
+        self._load_cover(self.current_track.cover_path)
+
+        # 在歌单中选中（屏蔽回调避免重复触发）
+        row = self.track_list.get_row_at_index(index)
+        if row is not None:
+            self._suppress_select = True
+            self.track_list.select_row(row)
+            self._suppress_select = False
+
+        # 加载音频并播放
+        if self.current_track.audio_path:
+            try:
+                uri = Gst.filename_to_uri(str(self.current_track.audio_path))
+            except Exception:
+                uri = 'file://' + str(self.current_track.audio_path)
+            self.player.set_property('uri', uri)
+            self.player.set_state(Gst.State.PLAYING)
+            self.is_playing = True
+            self.play_btn.set_label('暂停')
+            self._emit_song_changed()
+            self._emit_status_changed()
+        else:
+            print(f"警告：{self.current_track.path} 中未找到音频文件")
+
+        # 启动歌词更新定时器
+        self._start_lyrics_timer()
+
+    def _load_cover(self, cover_path):
+        """加载封面图片到封面控件。"""
+        if not cover_path or not Path(cover_path).exists():
+            self.cover_image.set_from_icon_name('audio-x-generic')
+            return
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                str(cover_path), 150, 150, True)
+            if pixbuf is not None:
+                self.cover_image.set_from_pixbuf(pixbuf)
+            else:
+                self.cover_image.set_from_icon_name('audio-x-generic')
+        except Exception as e:
+            print(f"警告：加载封面失败: {e}")
+            self.cover_image.set_from_icon_name('audio-x-generic')
+
+    def _start_lyrics_timer(self):
+        """启动（或重启）歌词/进度更新定时器。"""
+        if self._lyrics_update_id:
+            GLib.source_remove(self._lyrics_update_id)
+        self._lyrics_update_id = GLib.timeout_add(200, self._update_lyrics)
+
+    def _update_lyrics(self):
+        """定时（200ms）更新歌词高亮与进度条。"""
+        if not self.current_track or self.player is None:
+            return True
+
+        # 当前播放位置（毫秒）
+        ok, pos = self.player.query_position(Gst.Format.TIME)
+        pos_ms = (pos // 1_000_000) if ok else 0
+
+        # 渲染歌词
+        self._render_lyrics(pos_ms)
+
+        # 更新进度条（用户拖动期间不回写）
+        ok_d, dur = self.player.query_duration(Gst.Format.TIME)
+        if ok_d and dur > 0:
+            dur_ms = dur // 1_000_000
+            self.progress_bar.set_range(0, dur_ms)
+            if not self._seek_dragging:
+                self.progress_bar.handler_block(self._seek_handler_id)
+                self.progress_bar.set_value(pos_ms)
+                self.progress_bar.handler_unblock(self._seek_handler_id)
+            self.time_label.set_label(self._fmt_time(pos_ms // 1000))
+            self.duration_label.set_label(self._fmt_time(dur_ms // 1000))
+        return True
+
+    def _render_lyrics(self, current_ms):
+        """渲染歌词：以当前行为中心，前后若干行，当前行高亮。"""
+        lyrics = self.current_track.lyrics if self.current_track else []
+        if not lyrics:
+            self.lyrics_label.set_label('（无歌词）')
+            return
+        # 找当前行
+        idx = 0
+        for i, (t, _txt) in enumerate(lyrics):
+            if current_ms >= t:
+                idx = i
+            else:
+                break
+        start = max(0, idx - 4)
+        end = min(len(lyrics), idx + 6)
+        lines = []
+        for j in range(start, end):
+            _t, txt = lyrics[j]
+            esc = GLib.markup_escape_text(txt, -1)
+            if j == idx:
+                lines.append(
+                    f'<span foreground="#FFD700" size="x-large" '
+                    f'weight="bold">{esc}</span>')
+            else:
+                lines.append(
+                    f'<span foreground="#aaaaaa" size="medium">{esc}</span>')
+        self.lyrics_label.set_markup('\n'.join(lines))
+
+    @staticmethod
+    def _fmt_time(seconds):
+        """秒数格式化为 m:ss。"""
+        try:
+            seconds = int(seconds)
+        except (TypeError, ValueError):
+            seconds = 0
+        m = seconds // 60
+        s = seconds % 60
+        return f"{m}:{s:02d}"
+
+    # ------------------------------------------------------------------ #
+    # UI 事件回调
+    # ------------------------------------------------------------------ #
+    def _on_track_selected(self, listbox, row):
+        """歌单选中：播放对应曲目。"""
+        if self._suppress_select or row is None:
+            return
+        self._play_track(row.get_index())
+
+    def _on_play_pause(self, _btn):
+        """播放/暂停切换。"""
+        if self.player is None:
+            return
+        if self.current_track is None:
+            if self.tracks:
+                self._play_track(0)
+            return
+        if self.is_playing:
+            self.player.set_state(Gst.State.PAUSED)
+            self.is_playing = False
+            self.play_btn.set_label('播放')
+        else:
+            self.player.set_state(Gst.State.PLAYING)
+            self.is_playing = True
+            self.play_btn.set_label('暂停')
+        self._emit_status_changed()
+
+    def _on_stop(self, _btn):
+        """停止播放。"""
+        if self.player is None:
+            return
+        self.player.set_state(Gst.State.NULL)
+        self.is_playing = False
+        self.play_btn.set_label('播放')
+        self._emit_status_changed()
+
+    def _on_prev(self, _btn):
+        """上一首。"""
+        if self.tracks and self.current_index > 0:
+            self._play_track(self.current_index - 1)
+
+    def _on_next(self, _btn):
+        """下一首。"""
+        if self.tracks and self.current_index < len(self.tracks) - 1:
+            self._play_track(self.current_index + 1)
+
+    def _on_progress_value_changed(self, scale):
+        """进度条值变化（用户拖动）：实时更新左侧时间标签。"""
+        if self._seek_dragging:
+            self.time_label.set_label(self._fmt_time(scale.get_value() // 1000))
+
+    def _on_seek_begin(self, _gesture, _x, _y):
+        """开始拖动进度条。"""
+        self._seek_dragging = True
+
+    def _on_seek_end(self, _gesture, _x, _y):
+        """释放进度条：执行跳转。"""
+        self._seek_dragging = False
+        if self.player is None or not self.is_playing:
+            return
+        value = self.progress_bar.get_value()
+        if value > 0:
+            self.player.seek_simple(
+                Gst.Format.TIME, Gst.SeekFlags.FLUSH, int(value * 1_000_000))
+
+    def _on_volume_changed(self, scale):
+        """音量调节。"""
+        vol = scale.get_value() / 100.0
+        self._set_volume(vol)
+
+    # ------------------------------------------------------------------ #
+    # GStreamer 总线消息
+    # ------------------------------------------------------------------ #
+    def _on_eos(self, _bus, _msg):
+        """播放结束：切到下一首（在主线程执行）。"""
+        GLib.idle_add(self._handle_eos)
+
+    def _handle_eos(self):
+        self._on_next(None)
+        return False
+
+    def _on_error(self, _bus, msg):
+        """GStreamer 错误。"""
+        err, dbg = msg.parse_error()
+        print(f"GStreamer 错误: {err.message} (debug: {dbg})")
+        GLib.idle_add(self._handle_gst_error)
+
+    def _handle_gst_error(self):
+        self.is_playing = False
+        self.play_btn.set_label('播放')
+        self._emit_status_changed()
+        return False
+
+    def _on_state_changed(self, _bus, _msg):
+        """状态变化（此处不处理，状态由按钮回调统一管理）。"""
+        pass
+
+    # ------------------------------------------------------------------ #
+    # 音量
+    # ------------------------------------------------------------------ #
+    def _get_volume(self):
+        """获取当前音量（0.0 ~ 1.0）。"""
+        if self.player is None:
+            return 0.0
+        try:
+            return float(self.player.get_property('volume'))
+        except Exception:
+            return 0.0
+
+    def _set_volume(self, vol):
+        """设置音量（0.0 ~ 1.0），同步 UI 滑块。"""
+        vol = max(0.0, min(1.0, float(vol)))
+        if self.player is not None:
+            try:
+                self.player.set_property('volume', vol)
+            except Exception as e:
+                print(f"警告：设置音量失败: {e}")
+        self.volume_btn.handler_block(self._volume_handler_id)
+        self.volume_btn.set_value(vol * 100)
+        self.volume_btn.handler_unblock(self._volume_handler_id)
+
+    def _get_status_string(self):
+        """返回当前播放状态字符串：playing / paused / stopped。"""
+        if self.player is None:
+            return 'stopped'
+        try:
+            _ret, state, _pending = self.player.get_state(0)
+            if state == Gst.State.PLAYING:
+                return 'playing'
+            if state == Gst.State.PAUSED:
+                return 'paused'
+        except Exception:
+            pass
+        return 'stopped'
+
+    # ------------------------------------------------------------------ #
+    # 外部文件播放（命令行 <file.jnl>）
+    # ------------------------------------------------------------------ #
+    def _play_external_file(self, file_arg):
+        """播放不在音乐库中的 .jnl 文件：临时添加到列表尾部。"""
+        target = Path(file_arg)
+        for i, t in enumerate(self.tracks):
+            if t.path == target:
+                self._play_track(i)
+                return False
+        try:
+            track = JnlTrack(target)
+        except Exception as e:
+            print(f"错误：无法打开 {target}: {e}")
+            return False
+        self.tracks.append(track)
+        label_text = f"{len(self.tracks)}. {track.title} - {track.artist}"
+        row = Gtk.ListBoxRow()
+        row.set_child(Gtk.Label(label=label_text, halign=Gtk.Align.START,
+                                margin_start=6, margin_end=6,
+                                margin_top=3, margin_bottom=3))
+        self.track_list.append(row)
+        self._play_track(len(self.tracks) - 1)
+        return False
+
+    # ------------------------------------------------------------------ #
+    # DBus 服务
+    # ------------------------------------------------------------------ #
+    def _start_dbus(self):
+        """在 GApplication 已拥有的连接上注册 org.jnl_os.Player 接口。
+        GApplication 本身已持有 well-known 名称 org.jnl_os.Player，
+        因此无需再调用 bus_own_name，避免名称冲突。
+        """
+        try:
+            connection = self.get_dbus_connection()
+            if connection is None:
+                print("警告：无法获取 DBus 连接")
+                return
+            node_info = Gio.DBusNodeInfo.new_for_xml(DBUS_INTROSPECTION_XML)
+            interface_info = node_info.interfaces[0]
+            self._dbus_connection = connection
+            self._dbus_reg_id = connection.register_object_with_closures(
+                '/org/jnl_os/Player',
+                interface_info,
+                self._on_dbus_method_call,
+                self._on_dbus_get_property,
+                None,
+            )
+            print("DBus 服务已注册: org.jnl_os.Player @ /org/jnl_os/Player")
+        except Exception as e:
+            print(f"警告：DBus 注册失败: {e}")
+            self._dbus_connection = None
+
+    def _on_dbus_method_call(self, connection, sender, object_path,
+                            interface_name, method_name, parameters, invocation):
+        """DBus 方法调用分发。"""
+        try:
+            if method_name == 'Play':
+                self.dbus_play()
+                invocation.return_value(None)
+            elif method_name == 'Pause':
+                self.dbus_pause()
+                invocation.return_value(None)
+            elif method_name == 'Next':
+                self._on_next(None)
+                invocation.return_value(None)
+            elif method_name == 'Previous':
+                self._on_prev(None)
+                invocation.return_value(None)
+            elif method_name == 'Stop':
+                self._on_stop(None)
+                invocation.return_value(None)
+            elif method_name == 'PlayTrack':
+                idx = parameters.unpack()[0]
+                if 0 <= idx < len(self.tracks):
+                    self._play_track(idx)
+                    invocation.return_value(None)
+                else:
+                    invocation.return_dbus_error(
+                        'org.jnl_os.Player.Error.InvalidIndex',
+                        f'索引越界: {idx}')
+            elif method_name == 'GetStatus':
+                status = self._get_status_string()
+                pos_ms = 0
+                dur_ms = 0
+                if self.player is not None:
+                    ok, pos = self.player.query_position(Gst.Format.TIME)
+                    if ok:
+                        pos_ms = pos // 1_000_000
+                    ok, dur = self.player.query_duration(Gst.Format.TIME)
+                    if ok:
+                        dur_ms = dur // 1_000_000
+                invocation.return_value(
+                    GLib.Variant('(sii)', (status, pos_ms, dur_ms)))
+            elif method_name == 'GetSongInfo':
+                if self.current_track:
+                    title = self.current_track.title
+                    artist = self.current_track.artist
+                    album = self.current_track.album
+                    dur = self.current_track.duration_sec
+                else:
+                    title = artist = album = ''
+                    dur = 0
+                invocation.return_value(
+                    GLib.Variant('(sssi)', (title, artist, album, dur)))
+            elif method_name == 'SetVolume':
+                vol = parameters.unpack()[0]
+                self._set_volume(vol)
+                invocation.return_value(None)
+            elif method_name == 'GetVolume':
+                invocation.return_value(
+                    GLib.Variant('(d)', (self._get_volume(),)))
+            else:
+                invocation.return_dbus_error(
+                    'org.jnl_os.Player.Error.UnknownMethod',
+                    f'未知方法: {method_name}')
+        except Exception as e:
+            invocation.return_dbus_error(
+                'org.jnl_os.Player.Error', str(e))
+
+    def _on_dbus_get_property(self, _connection, _sender, _object_path,
+                              _interface_name, property_name):
+        """DBus 属性读取。"""
+        if property_name == 'Volume':
+            return GLib.Variant('d', self._get_volume())
+        if property_name == 'Status':
+            return GLib.Variant('s', self._get_status_string())
+        return None
+
+    def dbus_play(self):
+        """DBus Play：播放或恢复。"""
+        if self.player is None:
+            return
+        if self.current_track is None:
+            if self.tracks:
+                self._play_track(0)
+            return
+        if not self.is_playing:
+            self.player.set_state(Gst.State.PLAYING)
+            self.is_playing = True
+            self.play_btn.set_label('暂停')
+            self._emit_status_changed()
+
+    def dbus_pause(self):
+        """DBus Pause：暂停。"""
+        if self.player is None or self.current_track is None:
+            return
+        if self.is_playing:
+            self.player.set_state(Gst.State.PAUSED)
+            self.is_playing = False
+            self.play_btn.set_label('播放')
+            self._emit_status_changed()
+
+    def _emit_song_changed(self):
+        """发送 SongChanged 信号。"""
+        if self._dbus_connection is None:
+            return
+        if self.current_track:
+            title = self.current_track.title
+            artist = self.current_track.artist
+        else:
+            title = artist = ''
+        try:
+            self._dbus_connection.emit_signal(
+                None, '/org/jnl_os/Player', 'org.jnl_os.Player',
+                'SongChanged', GLib.Variant('(ss)', (title, artist)))
+        except Exception as e:
+            print(f"警告：发送 SongChanged 信号失败: {e}")
+
+    def _emit_status_changed(self):
+        """发送 StatusChanged 信号。"""
+        if self._dbus_connection is None:
+            return
+        try:
+            self._dbus_connection.emit_signal(
+                None, '/org/jnl_os/Player', 'org.jnl_os.Player',
+                'StatusChanged',
+                GLib.Variant('(s)', (self._get_status_string(),)))
+        except Exception as e:
+            print(f"警告：发送 StatusChanged 信号失败: {e}")
+
+    # ------------------------------------------------------------------ #
+    # 退出清理
+    # ------------------------------------------------------------------ #
+    def do_shutdown(self):
+        """应用退出：停止播放并清理所有临时目录。"""
+        try:
+            if self._lyrics_update_id:
+                GLib.source_remove(self._lyrics_update_id)
+                self._lyrics_update_id = None
+            if self.player is not None:
+                self.player.set_state(Gst.State.NULL)
+            for t in self.tracks:
+                t.cleanup()
+        except Exception as e:
+            print(f"警告：退出清理失败: {e}")
+        finally:
+            Gtk.Application.do_shutdown(self)
+
+
+def main():
+    app = JnlpApplication()
+    return app.run(sys.argv)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

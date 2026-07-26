@@ -1,0 +1,18 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "fept@jnl-os.local",
+                "Name": "FEPT"
+            }
+        ],
+        "Category": "Global Themes",
+        "Description": "Java Net Lava OS Boot Splash",
+        "Id": "JNL-OS",
+        "License": "GPLv2+",
+        "Name": "Java Net Lava OS",
+        "Version": "2.0",
+        "Website": "https://jnl-os.local"
+    }
+}

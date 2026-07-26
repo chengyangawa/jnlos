@@ -1,0 +1,18 @@
+# Maintainer: Java Net Lava OS Team
+pkgname=jnlc
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Java Net Lava Compiler - .jnl music pack tool"
+arch=('any')
+url="https://jnl-os.local"
+license=('GPL3')
+depends=('python' 'zip' 'unzip')
+optdepends=('mutagen: 自动读取音频时长'
+            'mpv: 播放音乐'
+            'vlc: 播放音乐')
+source=()
+sha256sums=()
+
+package() {
+    install -Dm755 "$srcdir/jnlc" "$pkgdir/usr/bin/jnlc"
+}

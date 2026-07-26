@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "JNL OS Music Tool",
+  "version": "1.0.0",
+  "description": "Java Net Lava OS 音乐下载工具 - 在QQ音乐页面添加下载按钮",
+  "default_locale": "zh_CN",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "*://*.qq.com/*",
+    "*://y.qq.com/*",
+    "*://*.music.qq.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://y.qq.com/*", "*://*.y.qq.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "jnl-music-tool@jnl-os.local",
+      "strict_min_version": "109.0"
+    }
+  }
+}

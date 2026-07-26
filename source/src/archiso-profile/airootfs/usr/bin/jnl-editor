@@ -1,0 +1,115 @@
+#!/bin/bash
+
+JNL_ICON="/usr/share/icons/jnl-os/jnl-notes.svg"
+
+show_help() {
+    echo "JNL Editor - Java Net Lava 笔记编辑器"
+    echo ""
+    echo "用法:"
+    echo "  jnl-editor                    # 创建新笔记"
+    echo "  jnl-editor <文件.jnl>         # 打开已有笔记"
+    echo "  jnl-editor --list             # 列出所有笔记"
+    echo "  jnl-editor --today            # 打开今天的笔记"
+    echo "  jnl-editor --help             # 显示帮助"
+    echo ""
+    echo ".jnl 文件格式:"
+    echo "  --- JNL Note ---"
+    echo "  Date: 2026-07-09"
+    echo "  Title: 今天的日记"
+    echo "  Tags: 工作, 学习"
+    echo "  ---"
+    echo "  正文内容..."
+}
+
+list_notes() {
+    echo "=== 我的笔记 ==="
+    count=0
+    for file in "$HOME/Documents/notes"/*.jnl "$HOME/Desktop"/*.jnl; do
+        [ -f "$file" ] || continue
+        title=$(grep '^Title:' "$file" | head -1 | sed 's/^Title: //')
+        date=$(grep '^Date:' "$file" | head -1 | sed 's/^Date: //')
+        tags=$(grep '^Tags:' "$file" | head -1 | sed 's/^Tags: //')
+        if [ -z "$title" ]; then
+            title=$(basename "$file" .jnl)
+        fi
+        echo "  [$date] $title"
+        [ -n "$tags" ] && echo "          标签: $tags"
+        echo "          文件: $file"
+        count=$((count+1))
+    done
+    if [ $count -eq 0 ]; then
+        echo "  暂无笔记，使用 'jnl-editor' 创建新笔记"
+    fi
+}
+
+open_today() {
+    today=$(date +%Y-%m-%d)
+    file="$HOME/Documents/notes/${today}.jnl"
+    mkdir -p "$HOME/Documents/notes"
+    
+    if [ -f "$file" ]; then
+        zenity --text-info --title "JNL Editor - ${today}" --filename="$file" \
+            --width=800 --height=600 --editable
+    else
+        create_new "$file"
+    fi
+}
+
+create_new() {
+    file="${1:-$HOME/Documents/notes/$(date +%Y-%m-%d).jnl}"
+    mkdir -p "$(dirname "$file")"
+    
+    title=$(zenity --entry --title "JNL Editor" --text "笔记标题:" --entry-text "$(date +%A)")
+    [ -z "$title" ] && exit 0
+    
+    tags=$(zenity --entry --title "JNL Editor" --text "标签（用逗号分隔）:" --entry-text "日常")
+    [ -z "$tags" ] && tags="日常"
+    
+    cat > "$file" <<EOF
+--- JNL Note ---
+Date: $(date +%Y-%m-%d)
+Title: $title
+Tags: $tags
+---
+
+$(date +"%H:%M:%S") - 
+
+EOF
+    
+    zenity --text-editor --title "JNL Editor - $title" --filename="$file"
+    
+    zenity --question --title "JNL Editor" --text "是否将此笔记添加到桌面？"
+    if [ $? -eq 0 ]; then
+        ln -sf "$file" "$HOME/Desktop/$(basename "$file")" 2>/dev/null || true
+    fi
+}
+
+open_file() {
+    file="$1"
+    if [ ! -f "$file" ]; then
+        zenity --error --title "JNL Editor" --text "文件不存在: $file"
+        exit 1
+    fi
+    zenity --text-info --title "JNL Editor - $(basename "$file")" --filename="$file" \
+        --width=800 --height=600 --editable
+}
+
+mkdir -p "$HOME/Documents/notes"
+
+case "$1" in
+    --help)
+        show_help
+        ;;
+    --list)
+        list_notes
+        ;;
+    --today)
+        open_today
+        ;;
+    "")
+        create_new
+        ;;
+    *)
+        open_file "$1"
+        ;;
+esac

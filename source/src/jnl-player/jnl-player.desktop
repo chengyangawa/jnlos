@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=JNL Player
+Comment=Java Net Lava OS Media Player
+Exec=jnl-player
+Icon=jnl-player
+Terminal=false
+Type=Application
+Categories=AudioVideo;Player;
+MimeType=audio/*;video/*;

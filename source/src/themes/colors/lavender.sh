@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Lavender 主题配色（薰衣草紫）
+export THEME_NAME="JNL-Lavender"
+export THEME_DISPLAY="JNL Lavender"
+export BG_DARK="#2a2438"
+export BG_MID="#36304a"
+export BG_LIGHT="#423c5c"
+export FG_DARK="#e8dff5"
+export FG_MID="#d0c4e0"
+export FG_LIGHT="#b8aac8"
+export ACCENT="#b888f5"
+export ACCENT_HOVER="#c89eff"
+export WARNING="#ffd166"
+export ERROR="#ef476f"
+export SUCCESS="#a6e3a1"
+export SHELL_BG="#2a2438"
+export SHELL_FG="#e8dff5"
+export WALLPAPER_COLORS="#2a2438 #b888f5 #9b6dff"

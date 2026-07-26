@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=JNL Player
+Name[zh_CN]=JNL 播放器
+Comment=Java Net Lava Music Player
+Comment[zh_CN]=Java Net Lava 音乐播放器
+Exec=jnlp %f
+Icon=audio-x-generic
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;
+MimeType=application/x-jnl;
+StartupNotify=true
+StartupWMClass=org.jnl_os.Player

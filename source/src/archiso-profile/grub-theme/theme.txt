@@ -1,0 +1,48 @@
+title-text: "Java Net Lava OS"
+title-font: "DejaVu Sans Bold 36"
+title-color: "#00a8e8"
+
+desktop-image: "background.png"
+desktop-color: "#0a0a0f"
+
+menu-background-color: "#1a1a2e"
+menu-border-color: "#0078d4"
+menu-border-width: 2
+menu-border-radius: 12
+menu-padding: 8
+menu-width: 600
+menu-height: 400
+menu-item-spacing: 4
+menu-item-font: "DejaVu Sans Regular 18"
+menu-item-color: "#ffffff"
+menu-item-selected-color: "#00a8e8"
+menu-item-selected-background-color: "#2a2a4e"
+menu-item-selected-border-color: "#0078d4"
+menu-item-selected-border-width: 1
+
+terminal-font: "DejaVu Sans Mono Regular 14"
+terminal-box-color: "#1a1a2e"
+terminal-border-color: "#0078d4"
+terminal-border-width: 2
+terminal-border-radius: 8
+terminal-text-color: "#00ff88"
+terminal-background-color: "#0a0a0f"
+
+progress-bar-color: "#00a8e8"
+progress-bar-border-color: "#0078d4"
+progress-bar-border-width: 1
+progress-bar-border-radius: 4
+
+message-color: "#ffffff"
+message-font: "DejaVu Sans Regular 16"
+message-background-color: "#1a1a2e"
+message-border-color: "#0078d4"
+message-border-width: 1
+message-border-radius: 8
+
+label-color: "#cccccc"
+label-font: "DejaVu Sans Regular 14"
+
+icon-width: 48
+icon-height: 48
+icon-spacing: 8

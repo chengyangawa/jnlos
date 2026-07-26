@@ -1,0 +1,10 @@
+{
+  "name": "jnl_bridge",
+  "description": "JNL OS Music Bridge - 浏览器与jnlc的桥梁",
+  "path": "/usr/bin/jnl-bridge.py",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://jnl-music-tool@jnl-os.local/",
+    "chrome-extension://jnlmstoolchrome/"
+  ]
+}

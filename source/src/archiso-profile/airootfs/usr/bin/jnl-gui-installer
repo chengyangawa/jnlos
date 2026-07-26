@@ -1,0 +1,2079 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+JNL OS 图形化安装程序 (Windows XP 风格 + Windows 11 安装流程)
+================================================================
+
+视觉风格：Windows XP（蓝色标题栏、灰色按钮、圆角窗口）
+安装流程：Windows 11（语言→许可→安装类型→磁盘→用户→确认→安装→完成）
+音乐：循环播放 /usr/share/jnl-os/JNL-install.mp3
+"""
+
+import os
+import sys
+import time
+import traceback
+
+# 启动日志
+LOG_FILE = "/tmp/jnl-gui-install.log"
+try:
+    with open(LOG_FILE, 'w', encoding='utf-8') as f:
+        f.write(f"JNL Installer started at {time.ctime()}\n")
+        f.write(f"Python version: {sys.version}\n")
+        f.write(f"PID: {os.getpid()}\n")
+        f.write(f"UID: {os.getuid()}\n")
+        f.write(f"PATH: {os.environ.get('PATH', '')}\n")
+        f.write(f"DISPLAY: {os.environ.get('DISPLAY', '')}\n")
+        f.write(f"HOME: {os.environ.get('HOME', '')}\n")
+except Exception as e:
+    pass
+
+# 先尝试导入 gi 并记录错误
+try:
+    import gi
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('Gdk', '3.0')
+    from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Pango
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write("✓ GTK3 imports successful\n")
+except Exception as e:
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(f"✗ GTK3 import failed: {e}\n")
+        f.write(f"Traceback: {traceback.format_exc()}\n")
+    raise
+
+import subprocess
+import threading
+import json
+import shutil
+import re
+
+# ============================================================================
+# 常量与全局状态
+# ============================================================================
+APP_TITLE = "Java Net Lava OS 安装程序"
+APP_VERSION = "1.0.30"
+
+# Windows XP 配色
+XP_BLUE = "#245EDC"        # 标题栏蓝
+XP_BLUE_DARK = "#1E4FA8"
+XP_BLUE_LIGHT = "#3A7AEF"
+XP_GREEN = "#3C8A3E"       # 进度条
+XP_BG = "#ECE9D8"          # 经典米色背景
+XP_BG_WINDOW = "#F0F0F0"   # 窗口灰
+XP_TEXT = "#000000"
+XP_TEXT_INV = "#FFFFFF"
+XP_BORDER = "#919B9C"
+XP_BTN_FACE = "#D4D0C8"    # 按钮面
+XP_BTN_HIGHLIGHT = "#FFFFFF"
+XP_BTN_SHADOW = "#808080"
+XP_BTN_DARK_SHADOW = "#404040"
+
+# 安装音乐（多种候选路径）
+INSTALL_MUSIC_PATHS = [
+    "/usr/share/jnl-os/JNL install.mp3",
+    "/usr/share/jnl-os/JNL-install.mp3",
+    "/usr/share/jnl-os/jnl-install.mp3",
+    "/usr/share/jnl-os/music/JNL install.mp3",
+    "/usr/share/jnl-os/install.mp3",
+    "/tmp/jnl-install-music.mp3",
+]
+
+# 安装日志和状态文件
+LOG_FILE = "/tmp/jnl-gui-install.log"
+CONFIG_FILE = "/tmp/jnl-installer-config.json"
+WORKER_PID_FILE = "/tmp/jnl-installer-worker.pid"
+INSTALLER_STATE_FILE = "/tmp/jnl-installer-state.json"
+
+# 步骤定义
+STEPS = [
+    ("prepare",      "正在准备安装环境",         5),
+    ("tools",        "正在安装必要工具",         12),
+    ("partition",    "正在创建磁盘分区",         22),
+    ("format",       "正在格式化文件系统",       30),
+    ("mount",        "正在挂载磁盘",             38),
+    ("copy",         "正在复制系统文件",         55),
+    ("fstab",        "正在配置 fstab",           62),
+    ("chroot",       "正在配置系统",             78),
+    ("grub",         "正在安装 GRUB 引导",       88),
+    ("verify",       "正在验证安装",             95),
+    ("cleanup",      "正在清理",                 99),
+    ("done",         "安装完成",                100),
+]
+
+
+# ============================================================================
+# Windows XP 样式（通过 CSS 模拟）
+# ============================================================================
+XP_CSS = f"""
+window {{
+    background: {XP_BG};
+}}
+
+.xp-titlebar {{
+    background: linear-gradient(to bottom, {XP_BLUE_LIGHT} 0%, {XP_BLUE} 8%, {XP_BLUE_DARK} 50%, {XP_BLUE} 92%, {XP_BLUE_LIGHT} 100%);
+    color: {XP_TEXT_INV};
+    font-weight: bold;
+    padding: 6px 10px;
+    border-radius: 8px 8px 0 0;
+    border: 1px solid {XP_BLUE_DARK};
+}}
+
+.xp-titlebar-title {{
+    color: {XP_TEXT_INV};
+    font-size: 13pt;
+    font-weight: bold;
+    text-shadow: 1px 1px 0 rgba(0,0,0,0.4);
+}}
+
+.xp-content {{
+    background: {XP_BG};
+    padding: 20px;
+    border: 1px solid {XP_BORDER};
+    border-top: none;
+}}
+
+.xp-content-light {{
+    background: {XP_BG_WINDOW};
+    padding: 16px;
+    border: 1px solid {XP_BORDER};
+    border-radius: 4px;
+}}
+
+.xp-button {{
+    background: linear-gradient(to bottom, {XP_BTN_FACE} 0%, #C8C4BC 50%, #BCB8B0 100%);
+    color: {XP_TEXT};
+    border: 1px solid {XP_BORDER};
+    border-radius: 3px;
+    padding: 6px 18px;
+    font-size: 10pt;
+    min-width: 80px;
+    min-height: 28px;
+}}
+
+.xp-button:hover {{
+    background: linear-gradient(to bottom, #E0DCD4 0%, #D0CCC4 50%, #C4C0B8 100%);
+    border-color: {XP_BLUE_DARK};
+}}
+
+.xp-button:active {{
+    background: linear-gradient(to bottom, #B8B4AC 0%, #C0BCB4 50%, #C8C4BC 100%);
+}}
+
+.xp-button-primary {{
+    background: linear-gradient(to bottom, {XP_BLUE_LIGHT} 0%, {XP_BLUE} 50%, {XP_BLUE_DARK} 100%);
+    color: {XP_TEXT_INV};
+    border: 1px solid {XP_BLUE_DARK};
+    font-weight: bold;
+}}
+
+.xp-button-primary:hover {{
+    background: linear-gradient(to bottom, #4A8AFF 0%, {XP_BLUE_LIGHT} 50%, {XP_BLUE} 100%);
+}}
+
+.xp-button-primary:active {{
+    background: linear-gradient(to bottom, {XP_BLUE_DARK} 0%, {XP_BLUE} 50%, {XP_BLUE_LIGHT} 100%);
+}}
+
+.xp-label {{
+    color: {XP_TEXT};
+    font-size: 10pt;
+}}
+
+.xp-label-large {{
+    color: {XP_TEXT};
+    font-size: 14pt;
+    font-weight: bold;
+}}
+
+.xp-label-title {{
+    color: {XP_BLUE_DARK};
+    font-size: 18pt;
+    font-weight: bold;
+}}
+
+.xp-label-section {{
+    color: {XP_BLUE_DARK};
+    font-size: 12pt;
+    font-weight: bold;
+    margin-top: 8px;
+    margin-bottom: 4px;
+}}
+
+.xp-entry {{
+    background: {XP_TEXT_INV};
+    color: {XP_TEXT};
+    border: 1px solid {XP_BORDER};
+    border-radius: 2px;
+    padding: 4px 8px;
+    min-height: 24px;
+}}
+
+.xp-entry:focus {{
+    border-color: {XP_BLUE_DARK};
+    box-shadow: 0 0 0 1px {XP_BLUE};
+}}
+
+.xp-radio {{
+    color: {XP_TEXT};
+    font-size: 10pt;
+    margin: 4px 0;
+}}
+
+.xp-radio:checked {{
+    color: {XP_BLUE_DARK};
+    font-weight: bold;
+}}
+
+.xp-progress {{
+    background: {XP_BG_WINDOW};
+    border: 1px solid {XP_BORDER};
+    border-radius: 2px;
+    min-height: 22px;
+}}
+
+.xp-progress-bar {
+    background: linear-gradient(to bottom, {XP_GREEN} 0%, #2D6E2F 50%, #1F4F21 100%);
+    border-radius: 1px;
+}
+
+.win10-progress {
+    background: #FFFFFF;
+    border: 2px solid #CCCCCC;
+    border-radius: 4px;
+    min-height: 24px;
+    padding: 2px;
+}
+
+.win10-progress progress {
+    border-radius: 2px;
+}
+
+.win10-progress-bar {
+    background: linear-gradient(to bottom, #0078D7 0%, #0063B1 100%);
+    border-radius: 2px;
+    box-shadow: 0 1px 2px rgba(0, 120, 215, 0.3);
+}
+
+.xp-list {
+    background: {XP_TEXT_INV};
+    color: {XP_TEXT};
+    border: 1px solid {XP_BORDER};
+    border-radius: 2px;
+}}
+
+.xp-textview {{
+    background: {XP_BG_WINDOW};
+    color: {XP_TEXT};
+    border: 1px solid {XP_BORDER};
+    font-family: "Consolas", "Monaco", "Courier New", monospace;
+    font-size: 9pt;
+}}
+
+.xp-headerbar {{
+    background: linear-gradient(to bottom, {XP_BLUE_LIGHT} 0%, {XP_BLUE} 50%, {XP_BLUE_DARK} 100%);
+    min-height: 32px;
+    border-radius: 7px 7px 0 0;
+}}
+
+.xp-statusbar {{
+    background: {XP_BG};
+    color: {XP_TEXT};
+    border-top: 1px solid {XP_BORDER};
+    padding: 4px 8px;
+    font-size: 9pt;
+}}
+
+.xp-frame {{
+    background: {XP_BG_WINDOW};
+    border: 1px solid {XP_BORDER};
+    border-radius: 4px;
+    padding: 12px;
+    margin: 4px;
+}}
+
+.xp-link {{
+    color: {XP_BLUE_DARK};
+    text-decoration: underline;
+}}
+"""
+
+
+# ============================================================================
+# 工具函数
+# ============================================================================
+def log(msg):
+    """写入日志"""
+    timestamp = time.strftime("%H:%M:%S")
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {msg}\n")
+    except Exception:
+        pass
+    print(f"[{timestamp}] {msg}", flush=True)
+
+
+def find_install_music():
+    """查找安装音乐文件"""
+    for path in INSTALL_MUSIC_PATHS:
+        if os.path.exists(path) and os.path.getsize(path) > 1000:
+            return path
+    return None
+
+
+def run_cmd(cmd, check=True, shell=False, **kwargs):
+    """运行命令"""
+    try:
+        log(f"执行命令: {cmd}")
+        if shell:
+            result = subprocess.run(cmd, shell=True, check=check,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    universal_newlines=True, **kwargs)
+        else:
+            result = subprocess.run(cmd, check=check, shell=False,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    universal_newlines=True, **kwargs)
+        return result.returncode, result.stdout
+    except subprocess.CalledProcessError as e:
+        return e.returncode, e.stdout
+    except Exception as e:
+        return -1, str(e)
+
+
+def get_disks():
+    """获取所有磁盘（使用 lsblk）"""
+    rc, out = run_cmd(
+        "lsblk -ndpo NAME,SIZE,MODEL,TYPE 2>/dev/null | grep -E 'disk$' || "
+        "lsblk -ndpo NAME,SIZE,MODEL 2>/dev/null",
+        check=False, shell=True
+    )
+    disks = []
+    for line in out.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split(None, 3)
+        if len(parts) >= 2:
+            disk = {
+                "name": parts[0],
+                "size": parts[1] if len(parts) > 1 else "?",
+                "model": parts[2] if len(parts) > 2 else "通用磁盘",
+                "type": parts[3] if len(parts) > 3 else "disk"
+            }
+            # 跳过 loop、rom、zram 等
+            if any(disk["name"].startswith(x) for x in
+                   ["/dev/loop", "/dev/rom", "/dev/zram", "/dev/dm-", "/dev/ram"]):
+                continue
+            disks.append(disk)
+    return disks
+
+
+def get_partitions(disk):
+    """获取磁盘上的所有分区"""
+    rc, out = run_cmd(
+        f"lsblk -npo NAME,SIZE,FSTYPE,TYPE 2>/dev/null | grep -E '{re.escape(disk)}[0-9]|^{re.escape(disk)}p[0-9]' || true",
+        check=False, shell=True
+    )
+    parts = []
+    for line in out.strip().split("\n"):
+        if not line:
+            continue
+        fields = line.split()
+        if len(fields) >= 4 and fields[3] == "part":
+            parts.append({
+                "name": fields[0],
+                "size": fields[1],
+                "fstype": fields[2] if len(fields) > 2 else "",
+            })
+    return parts
+
+
+# ============================================================================
+# 音乐播放器
+# ============================================================================
+class MusicPlayer:
+    """简单的音乐播放器，循环播放安装音乐"""
+
+    def __init__(self):
+        self.process = None
+        self.music_path = None
+        self.playing = False
+
+    def _set_low_priority(self):
+        """设置低优先级，避免影响安装过程"""
+        try:
+            os.nice(19)
+        except Exception:
+            pass
+
+    def start(self):
+        """启动循环播放"""
+        self.music_path = find_install_music()
+        if not self.music_path:
+            log("未找到安装音乐文件，跳过播放")
+            return False
+        log(f"找到安装音乐: {self.music_path}")
+
+        # 尝试不同的播放器（按优先级）
+        players = [
+            # mpv - 最稳定的选择，使用 nice 降低优先级
+            (["nice", "-n", "19", "ionice", "-c", "3", "mpv", "--no-video", "--no-terminal", "--really-quiet", "--loop=inf", "--volume=30", "--audio-buffer=2000", self.music_path], "mpv"),
+            # paplay / pacat - PulseAudio
+            (["nice", "-n", "19", "paplay", "--loop=9999", self.music_path], "paplay"),
+            (["nice", "-n", "19", "pacat", "--loop", self.music_path], "pacat"),
+            # mplayer
+            (["nice", "-n", "19", "mplayer", "-really-quiet", "-loop", "0", "-volume", "30", "-cache", "2048", self.music_path], "mplayer"),
+            # vlc
+            (["nice", "-n", "19", "vlc", "--intf", "dummy", "--play-and-exit", "--loop", "--volume", "30", "--no-audio-cache", self.music_path], "vlc"),
+            # ffplay
+            (["nice", "-n", "19", "ffplay", "-nodisp", "-loglevel", "quiet", "-loop", "0", "-volume", "30", "-fflags", "nobuffer", self.music_path], "ffplay"),
+            # cvlc
+            (["nice", "-n", "19", "cvlc", "--intf", "dummy", "--play-and-exit", "--loop", "--volume", "30", self.music_path], "cvlc"),
+            # gst-launch (gstreamer)
+            (["nice", "-n", "19", "gst-launch-1.0", "-q", "playbin", f"uri=file://{self.music_path}", "buffer-size=2000000"], "gst-launch-1.0"),
+        ]
+
+        for cmd, name in players:
+            try:
+                log(f"尝试启动音乐播放器: {name}")
+                self.process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=self._set_low_priority
+                )
+                # 等待播放器启动（最长 3 秒）
+                for _ in range(30):
+                    time.sleep(0.1)
+                    if self.process.poll() is None:
+                        log(f"✓ 音乐播放已启动 ({name}, PID: {self.process.pid})")
+                        self.playing = True
+                        return True
+                self.process = None
+            except FileNotFoundError:
+                log(f"  {name} 未安装")
+                continue
+            except Exception as e:
+                log(f"启动 {name} 失败: {e}")
+                continue
+
+        log("所有播放器都不可用，尝试 Python 后备方案")
+        return self._start_python_fallback()
+
+    def _start_python_fallback(self):
+        """纯 Python 后备播放（需要 pygame）"""
+        try:
+            import pygame
+            pygame.mixer.init()
+            pygame.mixer.music.load(self.music_path)
+            pygame.mixer.music.set_volume(0.5)
+            pygame.mixer.music.play(loops=-1)
+            log("✓ 使用 pygame 后备播放")
+            self.playing = True
+            return True
+        except Exception as e:
+            log(f"pygame 后备也失败: {e}")
+            return False
+
+    def stop(self):
+        """停止播放"""
+        # 停止 pygame
+        try:
+            import pygame
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+        except Exception:
+            pass
+
+        # 杀掉外部播放器进程组
+        if self.process:
+            try:
+                os.killpg(os.getpgid(self.process.pid), 15)
+            except Exception:
+                try:
+                    self.process.terminate()
+                except Exception:
+                    pass
+            self.process = None
+        self.playing = False
+        log("音乐播放已停止")
+
+    def is_playing(self):
+        if self.process:
+            return self.process.poll() is None
+        return self.playing
+
+
+# ============================================================================
+# 安装器状态
+# ============================================================================
+class InstallerState:
+    def __init__(self):
+        self.config = {
+            "language": "zh_CN.UTF-8",
+            "keyboard": "us",
+            "install_mode": "auto",  # auto | manual
+            "target_disk": "",
+            "esp_part": "",
+            "root_part": "",
+            "home_part": "",
+            "username": "jnluser",
+            "user_password": "",
+            "root_password": "",
+            "hostname": "JNL-OS",
+            "timezone": "Asia/Shanghai",
+        }
+
+    def save(self, path=CONFIG_FILE):
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            log(f"保存配置失败: {e}")
+
+    def load(self, path=CONFIG_FILE):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                self.config.update(json.load(f))
+        except Exception as e:
+            log(f"加载配置失败: {e}")
+
+
+# ============================================================================
+# 自定义控件
+# ============================================================================
+class XPTitleBar(Gtk.Box):
+    """Windows XP 风格标题栏"""
+
+    def __init__(self, title, subtitle=""):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.get_style_context().add_class("xp-titlebar")
+
+        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        title_label = Gtk.Label(label=title)
+        title_label.set_halign(Gtk.Align.START)
+        title_label.get_style_context().add_class("xp-titlebar-title")
+        title_box.pack_start(title_label, False, False, 0)
+
+        if subtitle:
+            sub_label = Gtk.Label(label=subtitle)
+            sub_label.set_halign(Gtk.Align.START)
+            sub_label.get_style_context().add_class("xp-titlebar-title")
+            sub_label.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.9, 0.95, 1.0, 0.85))
+            title_box.pack_start(sub_label, False, False, 0)
+
+        self.pack_start(title_box, True, True, 0)
+
+        # 版本号在右侧
+        ver_label = Gtk.Label(label=f"v{APP_VERSION}")
+        ver_label.set_halign(Gtk.Align.END)
+        ver_label.get_style_context().add_class("xp-titlebar-title")
+        ver_label.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.9, 0.95, 1.0, 0.7))
+        self.pack_end(ver_label, False, False, 0)
+
+
+class XPNavBar(Gtk.Box):
+    """Windows XP 风格底部导航栏（上一步/下一步/取消）"""
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.set_halign(Gtk.Align.END)
+        self.set_valign(Gtk.Align.END)
+        self.set_margin_top(8)
+        self.set_margin_bottom(8)
+        self.set_margin_end(8)
+
+    def add_button(self, label, primary=False):
+        btn = Gtk.Button(label=label)
+        if primary:
+            btn.get_style_context().add_class("xp-button-primary")
+        else:
+            btn.get_style_context().add_class("xp-button")
+        self.pack_start(btn, False, False, 0)
+        return btn
+
+
+class XPStepIndicator(Gtk.Box):
+    """显示当前步骤的进度指示器"""
+
+    def __init__(self, total_steps):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self.total = total_steps
+        self.dots = []
+        for i in range(total_steps):
+            dot = Gtk.Label(label="●")
+            dot.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.5, 0.5, 0.5, 1.0))
+            self.dots.append(dot)
+            self.pack_start(dot, False, False, 4)
+
+    def set_step(self, step):
+        for i, dot in enumerate(self.dots):
+            if i < step:
+                dot.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.24, 0.36, 0.86, 1.0))
+                dot.set_text("✓")
+            elif i == step:
+                dot.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.24, 0.36, 0.86, 1.0))
+                dot.set_text("●")
+            else:
+                dot.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.6, 0.6, 0.6, 1.0))
+                dot.set_text("●")
+
+
+# ============================================================================
+# 安装向导页面
+# ============================================================================
+class InstallerWizard(Gtk.Window):
+    """主安装向导窗口"""
+
+    def __init__(self):
+        super().__init__(title=APP_TITLE)
+        self.set_default_size(780, 560)
+        self.set_resizable(True)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_decorated(False)  # 去掉窗口装饰，自定义标题栏
+
+        self.state = InstallerState()
+        self.current_page = 0
+        self.music = MusicPlayer()
+        self.worker_thread = None
+        self.worker_process = None
+        self.pages = []
+        self.cancel_requested = False
+
+        # 加载 CSS
+        self._load_css()
+
+        # 启动音乐（在背景循环播放）
+        GLib.idle_add(self._delayed_start_music)
+
+        # 主容器
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_box.get_style_context().add_class("xp-window")
+        self.add(main_box)
+
+        # 标题栏
+        self.titlebar = XPTitleBar(APP_TITLE, "Java Net Lava OS 图形化安装程序")
+        main_box.pack_start(self.titlebar, False, False, 0)
+
+        # 内容区（用 Stack 实现多页面切换）
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.content_box.get_style_context().add_class("xp-content")
+        main_box.pack_start(self.content_box, True, True, 0)
+
+        # 步骤指示器
+        self.step_indicator = XPStepIndicator(7)
+        indicator_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        indicator_box.set_halign(Gtk.Align.CENTER)
+        indicator_box.set_margin_top(12)
+        indicator_box.set_margin_bottom(8)
+        indicator_box.add(self.step_indicator)
+        self.content_box.pack_start(indicator_box, False, False, 0)
+
+        # Stack 用于页面切换
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.stack.set_transition_duration(200)
+        self.content_box.pack_start(self.stack, True, True, 0)
+
+        # 底部导航栏
+        nav_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.navbar = XPNavBar()
+        nav_container.pack_start(self.navbar, False, False, 0)
+        main_box.pack_start(nav_container, False, False, 0)
+
+        # 创建所有页面
+        self._build_pages()
+
+        # 创建导航按钮
+        self.prev_btn = self.navbar.add_button("上一步 (B)")
+        self.next_btn = self.navbar.add_button("下一步 (N)", primary=True)
+        cancel_btn = self.navbar.add_button("取消 (C)")
+
+        self.prev_btn.connect("clicked", lambda *_: self._prev_page())
+        self.next_btn.connect("clicked", lambda *_: self._next_page())
+        cancel_btn.connect("clicked", lambda *_: self._on_cancel())
+
+        # 键盘快捷键
+        self.connect("key-press-event", self._on_key_press)
+
+        # 窗口关闭
+        self.connect("delete-event", lambda *_: self._on_window_close())
+
+        # 显示第一页
+        self._show_page(0)
+
+    def _load_css(self):
+        """加载 CSS 样式"""
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(XP_CSS.encode())
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+    def _delayed_start_music(self):
+        """延迟启动音乐（让 UI 先显示）"""
+        threading.Thread(target=self.music.start, daemon=True).start()
+        return False
+
+    def _build_pages(self):
+        """创建所有安装页面"""
+        # 第 1 页：欢迎
+        self.pages.append(WelcomePage(self))
+        # 第 2 页：语言和键盘
+        self.pages.append(LanguagePage(self))
+        # 第 3 页：许可协议
+        self.pages.append(LicensePage(self))
+        # 第 4 页：安装类型
+        self.pages.append(InstallTypePage(self))
+        # 第 5 页：磁盘选择
+        self.pages.append(DiskPage(self))
+        # 第 6 页：用户配置
+        self.pages.append(UserPage(self))
+        # 第 7 页：确认
+        self.pages.append(ConfirmPage(self))
+        # 第 8 页：安装中
+        self.pages.append(InstallPage(self))
+        # 第 9 页：完成
+        self.pages.append(DonePage(self))
+
+        for i, page in enumerate(self.pages):
+            page.build()
+            self.stack.add_titled(page, f"page{i}", f"第{i+1}页")
+
+    def _show_page(self, idx):
+        """切换到指定页面"""
+        if idx < 0 or idx >= len(self.pages):
+            return
+        # 离开当前页面
+        if 0 <= self.current_page < len(self.pages):
+            self.pages[self.current_page].on_leave()
+        # 进入新页面
+        self.current_page = idx
+        self.stack.set_visible_child_name(f"page{idx}")
+        self.pages[idx].on_enter()
+        # 更新步骤指示器（只在前面配置步骤显示）
+        if idx < 7:
+            self.step_indicator.set_step(idx)
+            self.step_indicator.set_visible(True)
+        else:
+            self.step_indicator.set_visible(False)
+        # 更新导航按钮
+        self._update_nav_buttons()
+
+    def _update_nav_buttons(self):
+        """更新导航按钮状态"""
+        idx = self.current_page
+        if idx == 0:
+            self.prev_btn.set_label("退出 (E)")
+            self.next_btn.set_label("下一步 (N)")
+            self.next_btn.set_sensitive(True)
+        elif idx in (1, 2, 3, 4, 5, 6):
+            self.prev_btn.set_label("上一步 (B)")
+            self.next_btn.set_label("下一步 (N)")
+        elif idx == 7:
+            # 安装页面
+            self.prev_btn.set_sensitive(False)
+            self.next_btn.set_sensitive(False)
+        elif idx == 8:
+            # 完成页面
+            self.prev_btn.set_sensitive(False)
+            self.next_btn.set_label("重启 (R)")
+            self.next_btn.set_sensitive(True)
+            self.prev_btn.set_label("")
+            self.prev_btn.set_sensitive(False)
+        self.show_all()
+
+    def _next_page(self):
+        """下一页"""
+        idx = self.current_page
+        if idx == 8:
+            # 完成页：重启
+            self._do_reboot()
+            return
+
+        # 验证当前页
+        if not self.pages[idx].validate():
+            return
+
+        if idx == 6:
+            # 确认页 → 安装页
+            self.state.save()
+            self._show_page(7)
+            # 启动安装
+            GLib.idle_add(self.pages[7].start_install)
+            return
+
+        self._show_page(idx + 1)
+
+    def _prev_page(self):
+        """上一页"""
+        idx = self.current_page
+        if idx == 0:
+            self._on_cancel()
+            return
+        self._show_page(idx - 1)
+
+    def _on_key_press(self, widget, event):
+        """键盘事件"""
+        key = event.keyval
+        if key == Gdk.KEY_Escape:
+            self._on_cancel()
+        elif key in (Gdk.KEY_n, Gdk.KEY_N) and self.next_btn.get_sensitive():
+            self._next_page()
+        elif key in (Gdk.KEY_b, Gdk.KEY_B) and self.prev_btn.get_sensitive():
+            self._prev_page()
+        elif key in (Gdk.KEY_c, Gdk.KEY_C):
+            self._on_cancel()
+
+    def _on_cancel(self):
+        """取消安装"""
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="确定要取消安装吗？"
+        )
+        dialog.format_secondary_text("系统将重启回到 Live 环境，您可以重新开始安装。")
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.YES:
+            self.music.stop()
+            if self.worker_process and self.worker_process.poll() is None:
+                try:
+                    self.worker_process.terminate()
+                except Exception:
+                    pass
+            Gtk.main_quit()
+
+    def _on_window_close(self, *args):
+        self._on_cancel()
+        return True
+
+    def _do_reboot(self):
+        """执行重启"""
+        self.music.stop()
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text="系统将重启..."
+        )
+        dialog.format_secondary_text("请先移除 U 盘，然后系统将重启进入新系统。")
+        dialog.run()
+        dialog.destroy()
+        subprocess.Popen(["reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        Gtk.main_quit()
+
+
+# ============================================================================
+# 页面 1：欢迎
+# ============================================================================
+class WelcomePage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.wizard = wizard
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        # 顶部留白
+        spacer = Gtk.Box()
+        spacer.set_size_request(-1, 20)
+        self.pack_start(spacer, False, False, 0)
+
+        # 主标题
+        title = Gtk.Label()
+        title.set_markup(f"<span size='xx-large' weight='bold' foreground='{XP_BLUE_DARK}'>欢迎使用 Java Net Lava OS</span>")
+        self.pack_start(title, False, False, 8)
+
+        subtitle = Gtk.Label()
+        subtitle.set_markup(f"<span size='large' foreground='#444444'>版本 {APP_VERSION} - 图形化安装向导</span>")
+        self.pack_start(subtitle, False, False, 4)
+
+        # 装饰条
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.pack_start(sep, False, False, 8)
+
+        # 介绍文字
+        desc_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        desc_box.set_margin_start(20)
+        desc_box.set_margin_end(20)
+        desc_box.set_margin_top(10)
+        desc_box.set_margin_bottom(10)
+
+        lines = [
+            "本安装程序将引导您完成 Java Net Lava OS 的安装过程。",
+            "",
+            "安装过程包括以下步骤：",
+            "   1. 选择语言和键盘布局",
+            "   2. 阅读并接受许可协议",
+            "   3. 选择安装类型（自动/手动）",
+            "   4. 选择目标磁盘和分区",
+            "   5. 配置用户账户",
+            "   6. 确认安装并开始安装",
+            "",
+            "整个过程通常需要 5-15 分钟（取决于磁盘速度）。",
+            "安装过程中将循环播放安装音乐。",
+        ]
+        for line in lines:
+            label = Gtk.Label(label=line)
+            label.set_halign(Gtk.Align.START)
+            label.get_style_context().add_class("xp-label")
+            desc_box.pack_start(label, False, False, 0)
+
+        self.pack_start(desc_box, True, True, 0)
+
+        # 提示
+        hint = Gtk.Label()
+        hint.set_markup(f"<i>点击「下一步」继续。安装前请确保已备份重要数据。</i>")
+        self.pack_start(hint, False, False, 12)
+
+    def on_enter(self):
+        pass
+
+    def on_leave(self):
+        pass
+
+    def validate(self):
+        return True
+
+
+# ============================================================================
+# 页面 2：语言和键盘
+# ============================================================================
+class LanguagePage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.wizard = wizard
+        self.lang_combo = None
+        self.kb_combo = None
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        title = Gtk.Label()
+        title.set_markup(f"<span size='x-large' weight='bold' foreground='{XP_BLUE_DARK}'>语言和键盘</span>")
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, False, 8)
+
+        # 语言部分
+        lang_label = Gtk.Label(label="请选择安装过程中使用的语言：")
+        lang_label.set_halign(Gtk.Align.START)
+        lang_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(lang_label, False, False, 4)
+
+        self.lang_combo = Gtk.ComboBoxText()
+        languages = [
+            ("zh_CN.UTF-8", "简体中文 (Simplified Chinese)"),
+            ("zh_TW.UTF-8", "繁體中文 (Traditional Chinese)"),
+            ("en_US.UTF-8", "English (United States)"),
+            ("ja_JP.UTF-8", "日本語 (Japanese)"),
+            ("ko_KR.UTF-8", "한국어 (Korean)"),
+        ]
+        for code, name in languages:
+            self.lang_combo.append(code, name)
+        self.lang_combo.set_active_id("zh_CN.UTF-8")
+        self.lang_combo.get_style_context().add_class("xp-entry")
+        self.pack_start(self.lang_combo, False, False, 4)
+
+        # 键盘部分
+        kb_spacer = Gtk.Box()
+        kb_spacer.set_size_request(-1, 12)
+        self.pack_start(kb_spacer, False, False, 0)
+
+        kb_label = Gtk.Label(label="请选择键盘布局：")
+        kb_label.set_halign(Gtk.Align.START)
+        kb_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(kb_label, False, False, 4)
+
+        self.kb_combo = Gtk.ComboBoxText()
+        keyboards = [
+            ("us", "英语（美国）"),
+            ("cn", "中文（拼音）"),
+            ("jp", "日语"),
+            ("kr", "韩语"),
+        ]
+        for code, name in keyboards:
+            self.kb_combo.append(code, name)
+        self.kb_combo.set_active_id("us")
+        self.kb_combo.get_style_context().add_class("xp-entry")
+        self.pack_start(self.kb_combo, False, False, 4)
+
+    def on_enter(self):
+        pass
+
+    def on_leave(self):
+        self.wizard.state.config["language"] = self.lang_combo.get_active_id() or "zh_CN.UTF-8"
+        self.wizard.state.config["keyboard"] = self.kb_combo.get_active_id() or "us"
+
+    def validate(self):
+        return True
+
+
+# ============================================================================
+# 页面 3：许可协议
+# ============================================================================
+class LicensePage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wizard = wizard
+        self.accept_check = None
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        title = Gtk.Label()
+        title.set_markup(f"<span size='x-large' weight='bold' foreground='{XP_BLUE_DARK}'>许可协议</span>")
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, False, 8)
+
+        # 协议文本
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_shadow_type(Gtk.ShadowType.IN)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+
+        textview = Gtk.TextView()
+        textview.set_editable(False)
+        textview.set_cursor_visible(False)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        textview.get_style_context().add_class("xp-textview")
+        textview.set_margin_start(8)
+        textview.set_margin_end(8)
+        textview.set_margin_top(8)
+        textview.set_margin_bottom(8)
+
+        license_text = """Java Net Lava OS 最终用户许可协议
+
+================================================================
+                          GNU 通用公共许可证
+                              第 3 版
+================================================================
+
+Java Net Lava OS 基于 Arch Linux 构建，并遵循自由软件基金会发布的
+GNU 通用公共许可证第 3 版（GPLv3）。
+
+本系统是自由软件：您可以自由地重新分发和/或修改它，但必须遵循
+GPLv3 或（您可以选择的）任何后续版本。
+
+分发本系统的目的是希望它有用，但不提供任何担保；甚至没有对
+"适销性"或"特定用途适用性"的暗示担保。有关更多详细信息，请参阅
+GNU 通用公共许可证。
+
+================================================================
+                          责任限制
+================================================================
+
+本软件按"原样"提供，不提供任何明示或暗示的担保，包括但不限于
+对适销性、特定用途适用性的暗示担保。
+
+在任何情况下，作者或版权所有者对因使用本软件而引起的任何索赔、
+损害或其他责任均不承担任何责任。
+
+================================================================
+                          系统特性
+================================================================
+
+• 内核：Linux LTS（长期支持版）
+• 桌面：KDE Plasma 6
+• 显示：Wayland
+• 特色：JNL 自研应用（编辑器、播放器、系统信息等）
+• AI 助手：本地 Ollama + Open WebUI（可选）
+
+================================================================
+                          隐私声明
+================================================================
+
+本系统不收集任何用户数据。所有操作均在本地完成。
+网络连接仅在您主动使用时建立。
+
+================================================================
+                          完整协议
+================================================================
+
+完整的 GNU 通用公共许可证第 3 版可访问以下网址：
+https://www.gnu.org/licenses/gpl-3.0.html
+
+使用本系统即表示您同意以上条款。
+"""
+
+        textview.get_buffer().set_text(license_text)
+        scrolled.add(textview)
+        self.pack_start(scrolled, True, True, 0)
+
+        # 接受复选框
+        self.accept_check = Gtk.CheckButton(label="我接受此许可协议的所有条款")
+        self.accept_check.get_style_context().add_class("xp-label")
+        self.pack_start(self.accept_check, False, False, 8)
+
+    def on_enter(self):
+        pass
+
+    def on_leave(self):
+        pass
+
+    def validate(self):
+        if not self.accept_check.get_active():
+            dialog = Gtk.MessageDialog(
+                transient_for=self.wizard,
+                modal=True,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="需要接受许可协议"
+            )
+            dialog.format_secondary_text("请勾选「我接受此许可协议的所有条款」后才能继续。")
+            dialog.run()
+            dialog.destroy()
+            return False
+        return True
+
+
+# ============================================================================
+# 页面 4：安装类型
+# ============================================================================
+class InstallTypePage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wizard = wizard
+        self.auto_radio = None
+        self.manual_radio = None
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        title = Gtk.Label()
+        title.set_markup(f"<span size='x-large' weight='bold' foreground='{XP_BLUE_DARK}'>安装类型</span>")
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, False, 8)
+
+        desc = Gtk.Label()
+        desc.set_markup("请选择适合您需求的安装方式：")
+        desc.set_halign(Gtk.Align.START)
+        desc.get_style_context().add_class("xp-label")
+        self.pack_start(desc, False, False, 4)
+
+        # 全新安装
+        self.auto_radio = Gtk.RadioButton.new_with_label(
+            None, "全新安装 - 自动分区整个磁盘"
+        )
+        self.auto_radio.get_style_context().add_class("xp-radio")
+        self.pack_start(self.auto_radio, False, False, 8)
+
+        auto_desc = Gtk.Label()
+        auto_desc.set_markup(
+            f"<span foreground='#666666' size='small'>"
+            f"   • 自动创建 GPT 分区表<br/>"
+            f"   • 创建 EFI 引导分区 (512MB)<br/>"
+            f"   • 创建根分区 (使用剩余空间)<br/>"
+            f"   • <b><span foreground='red'>将清除所选磁盘上的所有数据！</span></b>"
+            f"</span>"
+        )
+        auto_desc.set_halign(Gtk.Align.START)
+        auto_desc.set_margin_start(24)
+        self.pack_start(auto_desc, False, False, 4)
+
+        # 手动安装
+        self.manual_radio = Gtk.RadioButton.new_with_label(
+            None, "手动安装 - 使用已有分区"
+        )
+        self.manual_radio.get_style_context().add_class("xp-radio")
+        self.manual_radio.join_group(self.auto_radio)
+        self.pack_start(self.manual_radio, False, False, 8)
+
+        manual_desc = Gtk.Label()
+        manual_desc.set_markup(
+            f"<span foreground='#666666' size='small'>"
+            f"   • 适用于已用 GParted 等工具分好区的情况<br/>"
+            f"   • 需要提前创建好 ESP 引导分区和根分区<br/>"
+            f"   • 可以选择保留 /home 数据（升级安装）<br/>"
+            f"   • <b><span foreground='orange'>适合有经验的高级用户</span></b>"
+            f"</span>"
+        )
+        manual_desc.set_halign(Gtk.Align.START)
+        manual_desc.set_margin_start(24)
+        self.pack_start(manual_desc, False, False, 4)
+
+    def on_enter(self):
+        pass
+
+    def on_leave(self):
+        self.wizard.state.config["install_mode"] = "auto" if self.auto_radio.get_active() else "manual"
+
+    def validate(self):
+        return True
+
+
+# ============================================================================
+# 页面 5：磁盘选择
+# ============================================================================
+class DiskPage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wizard = wizard
+        self.disks = []
+        self.parts = []
+        self.disk_radio_buttons = []
+        self.esp_combo = None
+        self.root_combo = None
+        self.home_combo = None
+        self.mode_label = None
+        self.refresh_btn = None
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        title = Gtk.Label()
+        title.set_markup(f"<span size='x-large' weight='bold' foreground='{XP_BLUE_DARK}'>选择磁盘</span>")
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, False, 8)
+
+        # 加载磁盘
+        self._load_disks()
+
+        # 模式标签
+        self.mode_label = Gtk.Label()
+        mode = self.wizard.state.config.get("install_mode", "auto")
+        if mode == "auto":
+            self.mode_label.set_markup(f"<b>模式：全新安装（自动分区）</b>")
+        else:
+            self.mode_label.set_markup(f"<b>模式：手动安装（选择已有分区）</b>")
+        self.mode_label.set_halign(Gtk.Align.START)
+        self.mode_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(self.mode_label, False, False, 4)
+
+        if mode == "auto":
+            self._build_auto_ui()
+        else:
+            self._build_manual_ui()
+
+    def _load_disks(self):
+        """加载磁盘和分区信息"""
+        self.disks = get_disks()
+        self.parts = []
+        for disk in self.disks:
+            for part in get_partitions(disk["name"]):
+                self.parts.append(part)
+        log(f"检测到 {len(self.disks)} 个磁盘，{len(self.parts)} 个分区")
+
+    def _build_auto_ui(self):
+        """构建自动安装界面"""
+        if not self.disks:
+            err = Gtk.Label(label="未检测到任何磁盘！")
+            err.get_style_context().add_class("xp-label")
+            self.pack_start(err, True, True, 0)
+            return
+
+        warn = Gtk.Label()
+        warn.set_markup(
+            f"<b><span foreground='red' size='large'>⚠ 警告</span></b><br/>"
+            f"<span foreground='red'>所选磁盘上的所有数据将被永久删除！请确保已备份重要数据。</span>"
+        )
+        warn.set_halign(Gtk.Align.START)
+        self.pack_start(warn, False, False, 8)
+
+        label = Gtk.Label(label="请选择要安装系统的磁盘：")
+        label.set_halign(Gtk.Align.START)
+        label.get_style_context().add_class("xp-label-section")
+        self.pack_start(label, False, False, 4)
+
+        # 磁盘列表
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_shadow_type(Gtk.ShadowType.IN)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.disk_radio_buttons = []
+
+        for disk in self.disks:
+            row = Gtk.ListBoxRow()
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            box.set_margin_start(8)
+            box.set_margin_end(8)
+            box.set_margin_top(8)
+            box.set_margin_bottom(8)
+
+            radio = Gtk.RadioButton.new_with_label(None, "")
+            radio.set_size_request(20, 20)
+            if not self.disk_radio_buttons:
+                radio.set_active(True)
+            else:
+                radio.join_group(self.disk_radio_buttons[0])
+            self.disk_radio_buttons.append(radio)
+            box.pack_start(radio, False, False, 0)
+
+            text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            name_label = Gtk.Label()
+            name_label.set_markup(f"<b>{disk['name']}</b>")
+            name_label.set_halign(Gtk.Align.START)
+            text_box.pack_start(name_label, False, False, 0)
+
+            info_label = Gtk.Label()
+            info_label.set_markup(f"<span foreground='#666666' size='small'>大小: {disk['size']}  |  型号: {disk['model']}</span>")
+            info_label.set_halign(Gtk.Align.START)
+            text_box.pack_start(info_label, False, False, 0)
+            box.pack_start(text_box, True, True, 0)
+
+            row.add(box)
+            listbox.add(row)
+
+        scrolled.add(listbox)
+        self.pack_start(scrolled, True, True, 0)
+
+    def _build_manual_ui(self):
+        """构建手动安装界面"""
+        if not self.parts:
+            err = Gtk.Label()
+            err.set_markup(
+                f"<b><span foreground='red'>未检测到任何分区！</span></b>\n"
+                f"<span foreground='#666666'>请先用 GParted 等工具创建 ESP（FAT32, ≥512MB）和根分区（ext4, ≥10GB）。</span>"
+            )
+            err.get_style_context().add_class("xp-label")
+            err.set_halign(Gtk.Align.START)
+            self.pack_start(err, True, True, 0)
+            return
+
+        # ESP 选择
+        esp_label = Gtk.Label(label="EFI 引导分区 (FAT32, ≥512MB):")
+        esp_label.set_halign(Gtk.Align.START)
+        esp_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(esp_label, False, False, 4)
+        self.esp_combo = Gtk.ComboBoxText()
+        for part in self.parts:
+            label = f"{part['name']} ({part['size']}, {part['fstype'] or '未格式化'})"
+            self.esp_combo.append(part['name'], label)
+        self.esp_combo.get_style_context().add_class("xp-entry")
+        self.pack_start(self.esp_combo, False, False, 4)
+
+        spacer1 = Gtk.Box()
+        spacer1.set_size_request(-1, 12)
+        self.pack_start(spacer1, False, False, 0)
+
+        # 根分区选择
+        root_label = Gtk.Label(label="根分区 / (ext4, ≥10GB):")
+        root_label.set_halign(Gtk.Align.START)
+        root_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(root_label, False, False, 4)
+        self.root_combo = Gtk.ComboBoxText()
+        for part in self.parts:
+            label = f"{part['name']} ({part['size']}, {part['fstype'] or '未格式化'})"
+            self.root_combo.append(part['name'], label)
+        self.root_combo.get_style_context().add_class("xp-entry")
+        self.pack_start(self.root_combo, False, False, 4)
+
+        spacer2 = Gtk.Box()
+        spacer2.set_size_request(-1, 12)
+        self.pack_start(spacer2, False, False, 0)
+
+        # home 分区选择（可选）
+        home_label = Gtk.Label(label="Home 分区（可选，独立分区时选择）:")
+        home_label.set_halign(Gtk.Align.START)
+        home_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(home_label, False, False, 4)
+        self.home_combo = Gtk.ComboBoxText()
+        self.home_combo.append("", "（不使用，/home 在根分区上）")
+        for part in self.parts:
+            label = f"{part['name']} ({part['size']}, {part['fstype'] or '未格式化'})"
+            self.home_combo.append(part['name'], label)
+        self.home_combo.set_active_id("")
+        self.home_combo.get_style_context().add_class("xp-entry")
+        self.pack_start(self.home_combo, False, False, 4)
+
+    def on_enter(self):
+        # 如果模式变了，重新构建界面
+        current_mode = "auto" if self.auto_radio and self.auto_radio.get_active() else "manual"
+        # 简单处理：每次进入都重建
+        self.build()
+
+    def on_leave(self):
+        mode = self.wizard.state.config.get("install_mode", "auto")
+        if mode == "auto":
+            # 找到选中的磁盘
+            for i, radio in enumerate(self.disk_radio_buttons):
+                if i < len(self.disks) and radio.get_active():
+                    self.wizard.state.config["target_disk"] = self.disks[i]["name"]
+                    break
+        else:
+            if self.esp_combo:
+                self.wizard.state.config["esp_part"] = self.esp_combo.get_active_id() or ""
+            if self.root_combo:
+                self.wizard.state.config["root_part"] = self.root_combo.get_active_id() or ""
+            if self.home_combo:
+                self.wizard.state.config["home_part"] = self.home_combo.get_active_id() or ""
+
+    def validate(self):
+        mode = self.wizard.state.config.get("install_mode", "auto")
+        if mode == "auto":
+            target = self.wizard.state.config.get("target_disk", "")
+            if not target:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self.wizard,
+                    modal=True,
+                    message_type=Gtk.MessageType.WARNING,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="请选择目标磁盘"
+                )
+                dialog.run()
+                dialog.destroy()
+                return False
+            # 大小检查
+            for disk in self.disks:
+                if disk["name"] == target:
+                    size_str = disk["size"]
+                    # 解析大小（支持 K/M/G/T）
+                    m = re.match(r"([\d.]+)([KMGT]?)", size_str.upper())
+                    if m:
+                        num = float(m.group(1))
+                        unit = m.group(2) or ""
+                        mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}[unit]
+                        size_bytes = int(num * mult)
+                        if size_bytes < 10 * 1024**3:
+                            dialog = Gtk.MessageDialog(
+                                transient_for=self.wizard,
+                                modal=True,
+                                message_type=Gtk.MessageType.WARNING,
+                                buttons=Gtk.ButtonsType.OK,
+                                text="磁盘空间不足"
+                            )
+                            dialog.format_secondary_text(f"磁盘 {target} 大小仅 {size_str}，至少需要 10GB。")
+                            dialog.run()
+                            dialog.destroy()
+                            return False
+        else:
+            esp = self.wizard.state.config.get("esp_part", "")
+            root = self.wizard.state.config.get("root_part", "")
+            if not esp or not root:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self.wizard,
+                    modal=True,
+                    message_type=Gtk.MessageType.WARNING,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="请选择必要的分区"
+                )
+                dialog.format_secondary_text("必须选择 ESP 引导分区和根分区。")
+                dialog.run()
+                dialog.destroy()
+                return False
+        return True
+
+
+# ============================================================================
+# 页面 6：用户配置
+# ============================================================================
+class UserPage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wizard = wizard
+        self.username_entry = None
+        self.userpass_entry = None
+        self.userpass2_entry = None
+        self.rootpass_entry = None
+        self.rootpass2_entry = None
+        self.hostname_entry = None
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        title = Gtk.Label()
+        title.set_markup(f"<span size='x-large' weight='bold' foreground='{XP_BLUE_DARK}'>用户配置</span>")
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, False, 8)
+
+        desc = Gtk.Label()
+        desc.set_markup("创建您的账户信息和计算机名：")
+        desc.set_halign(Gtk.Align.START)
+        desc.get_style_context().add_class("xp-label")
+        self.pack_start(desc, False, False, 4)
+
+        # 用户名
+        self._add_field("用户名:", "username_entry", "jnluser")
+        # 用户密码
+        self._add_field("用户密码:", "userpass_entry", "", password=True)
+        self._add_field("确认密码:", "userpass2_entry", "", password=True)
+        # 主机名
+        self._add_field("计算机名:", "hostname_entry", "JNL-OS")
+        # Root 密码
+        self._add_field("Root 密码:", "rootpass_entry", "", password=True)
+        self._add_field("确认 Root 密码:", "rootpass2_entry", "", password=True)
+
+        hint = Gtk.Label()
+        hint.set_markup(f"<i><span foreground='#666666' size='small'>提示：密码至少 6 个字符。如果不设置 Root 密码，将使用用户密码。</span></i>")
+        hint.set_halign(Gtk.Align.START)
+        hint.set_margin_top(8)
+        self.pack_start(hint, False, False, 0)
+
+    def _add_field(self, label_text, attr_name, default="", password=False):
+        label = Gtk.Label(label=label_text)
+        label.set_halign(Gtk.Align.START)
+        label.set_margin_top(4)
+        label.get_style_context().add_class("xp-label-section")
+        self.pack_start(label, False, False, 0)
+
+        if password:
+            entry = Gtk.Entry()
+            entry.set_visibility(False)
+        else:
+            entry = Gtk.Entry()
+        entry.set_text(default)
+        entry.get_style_context().add_class("xp-entry")
+        self.pack_start(entry, False, False, 0)
+        setattr(self, attr_name, entry)
+
+    def on_enter(self):
+        pass
+
+    def on_leave(self):
+        self.wizard.state.config["username"] = self.username_entry.get_text().strip() or "jnluser"
+        self.wizard.state.config["user_password"] = self.userpass_entry.get_text()
+        self.wizard.state.config["root_password"] = self.rootpass_entry.get_text() or self.wizard.state.config["user_password"]
+        self.wizard.state.config["hostname"] = self.hostname_entry.get_text().strip() or "JNL-OS"
+
+    def validate(self):
+        username = self.username_entry.get_text().strip()
+        userpass = self.userpass_entry.get_text()
+        userpass2 = self.userpass2_entry.get_text()
+        rootpass = self.rootpass_entry.get_text() or userpass
+        rootpass2 = self.rootpass2_entry.get_text() or rootpass
+        hostname = self.hostname_entry.get_text().strip()
+
+        if not username:
+            self._show_error("请输入用户名")
+            return False
+        if not re.match(r"^[a-z_][a-z0-9_-]{0,31}$", username):
+            self._show_error("用户名只能包含小写字母、数字、下划线和连字符，且必须以字母或下划线开头")
+            return False
+
+        if len(userpass) < 6:
+            self._show_error("用户密码至少需要 6 个字符")
+            return False
+
+        if userpass != userpass2:
+            self._show_error("两次输入的用户密码不一致")
+            return False
+
+        if len(rootpass) < 6:
+            self._show_error("Root 密码至少需要 6 个字符")
+            return False
+
+        if rootpass != rootpass2:
+            self._show_error("两次输入的 Root 密码不一致")
+            return False
+
+        if not hostname:
+            self._show_error("请输入计算机名")
+            return False
+
+        return True
+
+    def _show_error(self, msg):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.wizard,
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text="输入错误"
+        )
+        dialog.format_secondary_text(msg)
+        dialog.run()
+        dialog.destroy()
+
+
+# ============================================================================
+# 页面 7：确认
+# ============================================================================
+class ConfirmPage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wizard = wizard
+        self.summary_label = None
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        title = Gtk.Label()
+        title.set_markup(f"<span size='x-large' weight='bold' foreground='{XP_BLUE_DARK}'>准备安装</span>")
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, False, 8)
+
+        desc = Gtk.Label()
+        desc.set_markup("请确认以下安装设置。点击「安装」开始安装过程：")
+        desc.set_halign(Gtk.Align.START)
+        desc.get_style_context().add_class("xp-label")
+        self.pack_start(desc, False, False, 4)
+
+        self.summary_label = Gtk.Label()
+        self.summary_label.set_halign(Gtk.Align.START)
+        self.summary_label.set_valign(Gtk.Align.START)
+        self.summary_label.get_style_context().add_class("xp-textview")
+        self.summary_label.set_margin_start(12)
+        self.summary_label.set_margin_end(12)
+        self.summary_label.set_margin_top(8)
+        self.summary_label.set_margin_bottom(8)
+        self.summary_label.set_line_wrap(True)
+        self.summary_label.set_selectable(True)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_shadow_type(Gtk.ShadowType.IN)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+        scrolled.add(self.summary_label)
+        self.pack_start(scrolled, True, True, 0)
+
+        warn = Gtk.Label()
+        warn.set_markup(
+            f"<b><span foreground='red' size='large'>⚠ 此操作不可撤销！</span></b><br/>"
+            f"<span foreground='red'>点击「安装」后，系统将开始写入磁盘。\n"
+            f"整个过程通常需要 5-15 分钟，期间请勿关闭电源。</span>"
+        )
+        warn.set_halign(Gtk.Align.START)
+        self.pack_start(warn, False, False, 8)
+
+    def on_enter(self):
+        cfg = self.wizard.state.config
+        mode = cfg.get("install_mode", "auto")
+        summary = f"═══════════════════════════════════════\n"
+        summary += f"  安装摘要\n"
+        summary += f"═══════════════════════════════════════\n\n"
+        summary += f"语言:        {cfg.get('language', 'zh_CN.UTF-8')}\n"
+        summary += f"键盘:        {cfg.get('keyboard', 'us')}\n"
+        summary += f"时区:        {cfg.get('timezone', 'Asia/Shanghai')}\n\n"
+
+        if mode == "auto":
+            summary += f"安装类型:    全新安装（自动分区）\n"
+            summary += f"目标磁盘:    {cfg.get('target_disk', '?')}\n"
+        else:
+            summary += f"安装类型:    手动安装\n"
+            summary += f"ESP 分区:    {cfg.get('esp_part', '?')}\n"
+            summary += f"根分区:      {cfg.get('root_part', '?')}\n"
+            if cfg.get('home_part'):
+                summary += f"Home 分区:   {cfg.get('home_part')}\n"
+            else:
+                summary += f"Home 分区:   （在根分区上）\n"
+        summary += f"\n"
+        summary += f"用户名:      {cfg.get('username', 'jnluser')}\n"
+        summary += f"计算机名:    {cfg.get('hostname', 'JNL-OS')}\n"
+        summary += f"用户密码:    {'*' * len(cfg.get('user_password', ''))}\n"
+        summary += f"Root 密码:   {'*' * len(cfg.get('root_password', ''))}\n"
+        summary += f"\n"
+        summary += f"═══════════════════════════════════════\n"
+        self.summary_label.set_text(summary)
+
+    def on_leave(self):
+        pass
+
+    def validate(self):
+        return True
+
+
+# ============================================================================
+# 页面 8：安装中
+# ============================================================================
+class InstallPage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.wizard = wizard
+        self.progress_bar = None
+        self.status_label = None
+        self.step_label = None
+        self.log_view = None
+        self.log_buffer = None
+        self.current_step = 0
+        self.worker_process = None
+        self.poll_source_id = None
+        self.progress_num1 = None
+        self.progress_num2 = None
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        title = Gtk.Label()
+        title.set_markup(f"<span size='x-large' weight='bold' foreground='{XP_BLUE_DARK}'>正在安装</span>")
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, False, 8)
+
+        # 当前步骤标签
+        self.step_label = Gtk.Label()
+        self.step_label.set_markup(f"<b>准备中...</b>")
+        self.step_label.set_halign(Gtk.Align.START)
+        self.step_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(self.step_label, False, False, 4)
+
+        # 详细状态
+        self.status_label = Gtk.Label()
+        self.status_label.set_halign(Gtk.Align.START)
+        self.status_label.set_markup("<span foreground='#666666' size='small'>等待启动...</span>")
+        self.pack_start(self.status_label, False, False, 4)
+
+        # 日志查看器
+        log_label = Gtk.Label(label="安装日志：")
+        log_label.set_halign(Gtk.Align.START)
+        log_label.get_style_context().add_class("xp-label-section")
+        self.pack_start(log_label, False, False, 4)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_shadow_type(Gtk.ShadowType.IN)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+
+        self.log_view = Gtk.TextView()
+        self.log_view.set_editable(False)
+        self.log_view.set_cursor_visible(False)
+        self.log_view.set_monospace(True)
+        self.log_view.get_style_context().add_class("xp-textview")
+        self.log_view.set_margin_start(6)
+        self.log_view.set_margin_end(6)
+        self.log_view.set_margin_top(6)
+        self.log_view.set_margin_bottom(6)
+        self.log_buffer = self.log_view.get_buffer()
+        scrolled.add(self.log_view)
+        self.pack_start(scrolled, True, True, 0)
+
+        # 底部进度条区域（Windows 10 风格）
+        progress_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        progress_area.set_margin_top(8)
+        progress_area.set_margin_bottom(4)
+        progress_area.set_margin_start(8)
+        progress_area.set_margin_end(8)
+
+        # 进度条（加粗）
+        self.progress_bar = Gtk.ProgressBar()
+        self.progress_bar.set_fraction(0.0)
+        self.progress_bar.set_show_text(True)
+        self.progress_bar.set_text("0%")
+        self.progress_bar.get_style_context().add_class("win10-progress")
+        self.progress_bar.set_margin_start(0)
+        self.progress_bar.set_margin_end(0)
+        progress_area.pack_start(self.progress_bar, False, False, 0)
+
+        # 进度条下方的数字标记（Windows 10 风格）
+        num_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        num_box.set_size_request(-1, 24)
+
+        # 数字 1（在 0% 位置）
+        self.progress_num1 = Gtk.Label()
+        self.progress_num1.set_markup("<span size='xx-large' weight='bold' foreground='#0078D7'>1</span>")
+        self.progress_num1.set_halign(Gtk.Align.START)
+        self.progress_num1.set_valign(Gtk.Align.CENTER)
+        num_box.pack_start(self.progress_num1, False, False, 0)
+
+        # 填充空间
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        num_box.pack_start(spacer, True, True, 0)
+
+        # 数字 2（在 30% 位置，通过占位调整）
+        self.progress_num2 = Gtk.Label()
+        self.progress_num2.set_markup("<span size='xx-large' weight='bold' foreground='#666666'>2</span>")
+        self.progress_num2.set_halign(Gtk.Align.START)
+        self.progress_num2.set_valign(Gtk.Align.CENTER)
+        num_box.pack_start(self.progress_num2, False, False, 0)
+
+        progress_area.pack_start(num_box, False, False, 0)
+
+        self.pack_start(progress_area, False, False, 0)
+
+    def start_install(self):
+        """启动安装（在主线程调用）"""
+        # 保存配置
+        self.wizard.state.save()
+
+        # 启动 worker 进程
+        worker_script = "/usr/bin/jnl-installer-worker"
+        if not os.path.exists(worker_script):
+            self._append_log(f"错误：未找到 worker 脚本 {worker_script}\n")
+            self._set_step(-1, f"错误：未找到 worker 脚本")
+            return
+
+        self._append_log("=" * 60 + "\n")
+        self._append_log(f"Java Net Lava OS 安装程序 v{APP_VERSION}\n")
+        self._append_log(f"启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        self._append_log("=" * 60 + "\n")
+        self._append_log(f"配置文件: {CONFIG_FILE}\n")
+        self._append_log(f"日志文件: {LOG_FILE}\n")
+        self._append_log(f"Worker 脚本: {worker_script}\n\n")
+
+        try:
+            self.worker_process = subprocess.Popen(
+                ["pkexec", worker_script, CONFIG_FILE],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+        except FileNotFoundError:
+            # 如果没有 pkexec，尝试 sudo
+            try:
+                self.worker_process = subprocess.Popen(
+                    ["sudo", "-A", worker_script, CONFIG_FILE],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    bufsize=1
+                )
+            except Exception as e:
+                self._append_log(f"启动失败：{e}\n尝试直接执行...\n")
+                self.worker_process = subprocess.Popen(
+                    [worker_script, CONFIG_FILE],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    bufsize=1
+                )
+
+        # 写入 PID
+        with open(WORKER_PID_FILE, "w") as f:
+            f.write(str(self.worker_process.pid))
+
+        self._append_log(f"Worker 进程已启动 (PID: {self.worker_process.pid})\n\n")
+
+        # 启动轮询
+        self.poll_source_id = GLib.timeout_add(300, self._poll_worker)
+
+    def _poll_worker(self):
+        """轮询 worker 输出"""
+        if not self.worker_process:
+            return False
+
+        # 读取所有可用输出
+        try:
+            while True:
+                line = self.worker_process.stdout.readline()
+                if not line:
+                    break
+                self._append_log(line)
+                # 解析状态行
+                self._parse_status(line)
+        except Exception:
+            pass
+
+        # 检查进程是否结束
+        ret = self.worker_process.poll()
+        if ret is not None:
+            self._append_log(f"\n[Worker 进程已结束，退出码: {ret}]\n")
+            if ret == 0:
+                self._set_step(len(STEPS) - 1, "安装完成！")
+                # 延迟跳转到完成页
+                GLib.timeout_add_seconds(2, lambda: self._goto_done() or False)
+            else:
+                self._set_step(-1, f"安装失败（退出码: {ret}）")
+            return False  # 停止轮询
+
+        return True  # 继续轮询
+
+    def _parse_status(self, line):
+        """解析状态行（worker 输出的 STEP|PERCENT|STATUS 格式）"""
+        line = line.strip()
+        if line.startswith("STEP|"):
+            try:
+                parts = line.split("|", 2)
+                step_idx = int(parts[1])
+                status = parts[2] if len(parts) > 2 else ""
+                self._set_step(step_idx, status)
+            except Exception:
+                pass
+
+    def _set_step(self, step_idx, status_text=""):
+        """设置当前步骤"""
+        if step_idx < 0:
+            self.step_label.set_markup(f"<b><span foreground='red'>{status_text}</span></b>")
+            return
+        if step_idx >= len(STEPS):
+            step_idx = len(STEPS) - 1
+        step_name, step_desc, percent = STEPS[step_idx]
+        self.progress_bar.set_fraction(percent / 100.0)
+        self.progress_bar.set_text(f"{percent}%")
+        if status_text:
+            self.step_label.set_markup(f"<b>{step_desc}</b> - {status_text}")
+        else:
+            self.step_label.set_markup(f"<b>{step_desc}</b>")
+        self.status_label.set_markup(
+            f"<span foreground='#666666' size='small'>步骤 {step_idx + 1}/{len(STEPS)} - {step_name}</span>"
+        )
+
+        # 更新数字标记颜色（Windows 10 风格）
+        if percent <= 30:
+            self.progress_num1.set_markup("<span size='xx-large' weight='bold' foreground='#0078D7'>1</span>")
+            self.progress_num2.set_markup("<span size='xx-large' weight='bold' foreground='#666666'>2</span>")
+        else:
+            self.progress_num1.set_markup("<span size='xx-large' weight='bold' foreground='#0078D7'>1</span>")
+            self.progress_num2.set_markup("<span size='xx-large' weight='bold' foreground='#0078D7'>2</span>")
+
+    def _append_log(self, text):
+        """追加日志"""
+        end_iter = self.log_buffer.get_end_iter()
+        self.log_buffer.insert(end_iter, text)
+        # 自动滚动到底部
+        mark = self.log_buffer.create_mark(None, self.log_buffer.get_end_iter(), False)
+        self.log_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+
+    def _goto_done(self):
+        """跳转到完成页面"""
+        # 检查安装是否真的成功
+        if os.path.exists("/tmp/jnl-install-complete"):
+            self.wizard._show_page(8)
+        else:
+            self._set_step(-1, "安装未完成，请查看日志")
+        return False
+
+    def on_enter(self):
+        pass
+
+    def on_leave(self):
+        pass
+
+    def validate(self):
+        return True
+
+
+# ============================================================================
+# 页面 9：完成
+# ============================================================================
+class DonePage(Gtk.Box):
+    def __init__(self, wizard):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.wizard = wizard
+
+    def build(self):
+        for child in self.get_children():
+            self.remove(child)
+
+        # 居中
+        spacer_top = Gtk.Box()
+        spacer_top.set_size_request(-1, 30)
+        self.pack_start(spacer_top, False, False, 0)
+
+        # 大标题
+        title = Gtk.Label()
+        title.set_markup(
+            f"<span size='xx-large' weight='bold' foreground='{XP_GREEN}'>✓ 安装完成</span>"
+        )
+        self.pack_start(title, False, False, 12)
+
+        # 副标题
+        subtitle = Gtk.Label()
+        subtitle.set_markup(
+            f"<span size='large' foreground='#444444'>Java Net Lava OS 已成功安装到您的计算机</span>"
+        )
+        self.pack_start(subtitle, False, False, 4)
+
+        # 装饰条
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.pack_start(sep, False, False, 12)
+
+        # 信息
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        info_box.set_margin_start(20)
+        info_box.set_margin_end(20)
+        info_box.set_margin_top(10)
+        info_box.set_margin_bottom(10)
+
+        lines = [
+            ("系统版本:", f"Java Net Lava OS {APP_VERSION}"),
+            ("用户名:", None),  # 动态填充
+            ("计算机名:", None),
+            ("", ""),
+            ("后续步骤:", ""),
+            ("1. 移除 U 盘", ""),
+            ("2. 点击「重启」按钮", ""),
+            ("3. 系统将从硬盘启动进入新系统", ""),
+        ]
+        self.info_labels = {}
+        for label, value in lines:
+            if not label and not value:
+                spacer = Gtk.Box()
+                spacer.set_size_request(-1, 8)
+                info_box.pack_start(spacer, False, False, 0)
+                continue
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            l = Gtk.Label(label=label)
+            l.set_halign(Gtk.Align.START)
+            l.set_size_request(100, -1)
+            l.get_style_context().add_class("xp-label")
+            row.pack_start(l, False, False, 0)
+
+            v = Gtk.Label(label=value or "")
+            v.set_halign(Gtk.Align.START)
+            v.set_line_wrap(True)
+            v.get_style_context().add_class("xp-label")
+            row.pack_start(v, True, True, 0)
+
+            info_box.pack_start(row, False, False, 0)
+            self.info_labels[label] = v
+
+        self.pack_start(info_box, True, True, 0)
+
+        # 提示
+        hint = Gtk.Label()
+        hint.set_markup(
+            f"<b><span foreground='red' size='large'>⚠ 请先移除 U 盘！</span></b>"
+        )
+        self.pack_start(hint, False, False, 12)
+
+    def on_enter(self):
+        cfg = self.wizard.state.config
+        if "用户名:" in self.info_labels:
+            self.info_labels["用户名:"].set_text(cfg.get("username", "jnluser"))
+        if "计算机名:" in self.info_labels:
+            self.info_labels["计算机名:"].set_text(cfg.get("hostname", "JNL-OS"))
+
+    def on_leave(self):
+        pass
+
+    def validate(self):
+        return True
+
+
+# ============================================================================
+# 主程序
+# ============================================================================
+def main():
+    # 检查 root 权限
+    if os.geteuid() != 0:
+        # 尝试用 pkexec / sudo 重启
+        for cmd in (["pkexec", sys.executable] + sys.argv,
+                    ["sudo", sys.executable] + sys.argv):
+            try:
+                os.execvp(cmd[0], cmd)
+            except FileNotFoundError:
+                continue
+            except Exception:
+                pass
+        print("错误：需要 root 权限运行安装程序")
+        sys.exit(1)
+
+    # 设置环境
+    os.environ.setdefault("DISPLAY", ":0")
+    os.environ.setdefault("LANG", "zh_CN.UTF-8")
+    os.environ.setdefault("LC_ALL", "zh_CN.UTF-8")
+
+    # 清理旧的标记文件
+    for f in ["/tmp/jnl-install-complete", WORKER_PID_FILE]:
+        try:
+            os.remove(f)
+        except FileNotFoundError:
+            pass
+
+    # 启动 GTK
+    win = InstallerWizard()
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

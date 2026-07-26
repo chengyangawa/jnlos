@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Sunset 主题配色（日落橙红）
+export THEME_NAME="JNL-Sunset"
+export THEME_DISPLAY="JNL Sunset"
+export BG_DARK="#2e1a1e"
+export BG_MID="#3e2428"
+export BG_LIGHT="#4e2e32"
+export FG_DARK="#f5e0d8"
+export FG_MID="#e0c8c0"
+export FG_LIGHT="#c8b0a8"
+export ACCENT="#ff8c5a"
+export ACCENT_HOVER="#ffa070"
+export WARNING="#ffd166"
+export ERROR="#ef476f"
+export SUCCESS="#06d6a0"
+export SHELL_BG="#2e1a1e"
+export SHELL_FG="#f5e0d8"
+export WALLPAPER_COLORS="#2e1a1e #ff8c5a #ef476f"

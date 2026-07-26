@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=JNL Editor
+GenericName=笔记编辑器
+Comment=Java Net Lava OS 笔记编辑器
+Exec=jnl-editor %f
+Icon=/usr/share/icons/jnl-os/jnl-editor.svg
+Terminal=false
+Type=Application
+Categories=Utility;TextEditor;
+MimeType=text/jnl;application/x-jnl;
+Keywords=notes;diary;journal;

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=PCL2 Launcher
+GenericName=Minecraft 启动器
+Comment=PCL2 - Minecraft 第三方启动器
+Exec=pcl2-launcher
+Icon=pcl2
+Terminal=false
+Type=Application
+Categories=Game;
+Keywords=minecraft;game;launcher;
+StartupWMClass=PCL2

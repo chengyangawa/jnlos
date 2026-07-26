@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=JNL AI 本地助手
+Name[zh_CN]=JNL AI 本地助手
+Comment=本地无过滤AI聊天助手（Ollama + Open WebUI）
+Comment[zh_CN]=本地无过滤AI聊天助手，支持手机访问
+Exec=xdg-open http://localhost:8080
+Icon=preferences-system-search
+Type=Application
+Categories=Network;WebBrowser;
+Terminal=false
+StartupNotify=true

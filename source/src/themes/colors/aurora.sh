@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# JNL Aurora 主题配色（极光渐变，紫绿蓝）
+export THEME_NAME="JNL-Aurora"
+export THEME_DISPLAY="JNL Aurora"
+export BG_DARK="#0a1e2e"
+export BG_MID="#142a3e"
+export BG_LIGHT="#1e364c"
+export FG_DARK="#d8f0e8"
+export FG_MID="#c0dcd4"
+export FG_LIGHT="#a8c8c0"
+export ACCENT="#7affc8"
+export ACCENT_HOVER="#9affd8"
+export WARNING="#ffd166"
+export ERROR="#ef476f"
+export SUCCESS="#a6e3a1"
+export SHELL_BG="#0a1e2e"
+export SHELL_FG="#d8f0e8"
+export WALLPAPER_COLORS="#0a1e2e #7affc8 #b888f5"

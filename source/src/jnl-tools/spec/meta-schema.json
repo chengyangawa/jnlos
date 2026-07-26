@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jnl.java-net-lava.os/spec/meta-schema.json",
+  "title": "JNL meta.json Schema",
+  "description": "Java Net Lava Music Pack (.jnl) 元数据文件 meta.json 的 JSON Schema 规范，版本 1.0。",
+  "type": "object",
+  "required": [
+    "format_version",
+    "title",
+    "artist",
+    "duration"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "format_version": {
+      "description": "格式版本号，当前规范固定为 '1.0'。",
+      "type": "string",
+      "const": "1.0"
+    },
+    "title": {
+      "description": "歌曲标题，非空字符串。",
+      "type": "string",
+      "minLength": 1
+    },
+    "artist": {
+      "description": "艺术家名称，非空字符串。",
+      "type": "string",
+      "minLength": 1
+    },
+    "album": {
+      "description": "专辑名称。",
+      "type": "string"
+    },
+    "duration": {
+      "description": "歌曲时长，单位为秒，必须为正整数。",
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_url": {
+      "description": "歌曲来源页面 URL。",
+      "type": "string",
+      "format": "uri"
+    },
+    "source_platform": {
+      "description": "来源平台标识，建议使用小写英文短名，如 qqmusic、netease、local。",
+      "type": "string"
+    },
+    "audio_codec": {
+      "description": "音频编码格式，必须与音频文件扩展名一致。",
+      "type": "string",
+      "enum": [
+        "mp3",
+        "flac",
+        "ogg",
+        "m4a"
+      ]
+    },
+    "audio_bitrate": {
+      "description": "音频比特率，单位 kbps，正整数。",
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at": {
+      "description": "打包创建时间，ISO 8601 日期时间字符串。",
+      "type": "string",
+      "format": "date-time"
+    },
+    "tags": {
+      "description": "风格/分类标签列表。",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

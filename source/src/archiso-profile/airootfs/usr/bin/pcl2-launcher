@@ -1,0 +1,25 @@
+#!/bin/bash
+
+PCL2_DIR="$HOME/Games/PCL2"
+PCL2_EXE="PCL2.exe"
+PCL2_URL="https://github.com/Hex-Dragon/PCL2/releases/download/2.5.2/PCL2-Setup.exe"
+
+mkdir -p "$PCL2_DIR"
+
+if [ ! -f "$PCL2_DIR/$PCL2_EXE" ]; then
+    zenity --info --title "PCL2 启动器" --text "检测到首次运行，正在下载PCL2启动器..."
+    cd "$PCL2_DIR"
+    if command -v wget &>/dev/null; then
+        wget -q --show-progress "$PCL2_URL" -O "$PCL2_EXE"
+    else
+        curl -sL "$PCL2_URL" -o "$PCL2_EXE"
+    fi
+fi
+
+if [ ! -f "$PCL2_DIR/$PCL2_EXE" ]; then
+    zenity --error --title "PCL2 启动器" --text "下载失败，请手动下载PCL2启动器到 $PCL2_DIR"
+    exit 1
+fi
+
+cd "$PCL2_DIR"
+WINEPREFIX="$PCL2_DIR/.wine" wine "$PCL2_EXE" "$@"
