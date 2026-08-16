@@ -1,5 +1,5 @@
 # jnlos
-基于archlinux的全新系统
+基于debian13linux的全新系统
 
 项目官网
 
